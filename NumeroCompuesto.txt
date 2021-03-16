@@ -1,5 +1,6 @@
 // Un método optimizado basado en Java
 // para comprobar si un número es compuesto o no.
+//Realizado por Felipe Napan
 class NumeroCompuesto
 {
     static boolean esCompuesto(int n)
