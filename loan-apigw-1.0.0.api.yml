@@ -9786,7 +9786,7 @@ x-ibm-comment:
     #/definitions/Resp-CreditType-Agreements with multiple roots or not intended
     for XML data.
   - >-
-    API40: Skipping JSON Schema definition:
+    API40: Skipping JSON Schema definition: 
     #/definitions/Resp-DisbursementType-Agreements with multiple roots or not
     intended for XML data.
   - >-
