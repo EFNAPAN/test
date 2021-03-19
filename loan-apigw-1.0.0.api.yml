@@ -15,11 +15,6 @@ consumes:
 produces:
   - application/json
 securityDefinitions:
-  clientSecret:
-    type: apiKey
-    name: X-IBM-Client-Secret
-    in: header
-    x-key-type: client_secret
   OAuth:
     type: oauth2
     flow: password
@@ -27,12 +22,18 @@ securityDefinitions:
     scopes:
       scopeConsultaM1: Scope de consulta M
       scopeTransaccionM1: Scope de transaccion M
+  clientSecret:
+    type: apiKey
+    name: X-IBM-Client-Secret
+    in: header
+    x-key-type: client_secret
   clientIdHeader:
     in: header
     name: X-IBM-Client-Id
     type: apiKey
 security:
-  - clientIdHeader: []
+  - OAuth: []
+    clientIdHeader: []
 x-ibm-configuration:
   testable: true
   enforced: true
@@ -85,10 +86,10 @@ x-ibm-configuration:
                     source: >-
                       var apim=require('apim');
 
-                      var gsPolicyMod = require('policy/policy-utility.js');
+                      //var gsPolicyMod = require('policy/policy-utility.js');
 
                       var appId =
-                      apim.getvariable('message.headers.X-INT-Consumer-Id');
+                      apim.getvariable('message.headers.consumerId');
 
                       var groupId =
                       apim.getvariable('request.parameters.groupId');
@@ -130,7 +131,7 @@ x-ibm-configuration:
                           apim.setvariable('message.status.reason', 'Bad Request');
                           apim.setvariable('message.body', '{"httpCode": "400","httpMessage": "Bad Request","moreInformation": "Required request parameter is missing."}');
                           apim.output('application/json');
-                          gsPolicyMod.SetNextStep('_SKIP_ALL_');
+                          //gsPolicyMod.SetNextStep('_SKIP_ALL_');
                       }
                     title: validate request
                     version: 2.0.0
@@ -151,7 +152,7 @@ x-ibm-configuration:
                       - default: >-
                           http://tempuri.org/WSHpcIntranet/Simulacion/SimulacionCuota
                         set: SOAPAction
-                      - from: X-INT-Consumer-Id
+                      - from: consumerId
                         set: body.Envelope.Body.SimulacionCuota.intCodAplicacion
                       - from: groupId
                         set: body.Envelope.Body.SimulacionCuota.intCodGrupo
@@ -196,18 +197,18 @@ x-ibm-configuration:
                       - from: installmentFactor
                         set: body.Envelope.Body.SimulacionCuota.dblFactorCuota
                     inputs:
-                      X-INT-Consumer-Id:
+                      consumerId:
                         schema:
                           type: string
-                        variable: message.headers.X-INT-Consumer-Id
-                      X-INT-Message-Id:
+                        variable: message.headers.consumerId
+                      messageId:
                         schema:
                           type: string
-                        variable: message.headers.X-INT-Message-Id
-                      X-INT-Timestamp:
+                        variable: message.headers.messageId
+                      timeStamp:
                         schema:
                           type: string
-                        variable: message.headers.X-INT-Timestamp
+                        variable: message.headers.timeStamp
                       amount:
                         schema:
                           type: number
@@ -308,14 +309,12 @@ x-ibm-configuration:
                     source: >-
                       var apim=require('apim');
 
-                      apim.setvariable('message.headers.X-INT-Consumer-Id','
+                      apim.setvariable('message.headers.consumerId','
                       ','clear');
 
-                      apim.setvariable('message.headers.X-INT-Timestamp','
-                      ','clear');
+                      apim.setvariable('message.headers.timeStamp',' ','clear');
 
-                      apim.setvariable('message.headers.X-INT-Message-Id','
-                      ','clear');
+                      apim.setvariable('message.headers.messageId',' ','clear');
                     title: remove headers
                     version: 2.0.0
                     comment:
@@ -328,13 +327,20 @@ x-ibm-configuration:
                         `gatewayscript` policy to conform to the API Gateway
                         specification. For details, see:
                         https://www.ibm.com/support/knowledgecenter/SSMNED_v10/com.ibm.apic.porting.doc/porting_messages.html#GWS_PREPEND_REQUIRE_APIM
+                - set-variable:
+                    version: 2.0.0
+                    title: set-rPath
+                    actions:
+                      - set: message.headers.rPath
+                        value: $(TARGET_INTRANET)
+                        type: string
                 - invoke:
                     cache-response: no-cache
                     cache-ttl: 900
                     output: SimulacionCuotaOut
                     stop-on-error:
                       - ConnectionError
-                    target-url: $(URL_SIMULACION_CUOTA)
+                    target-url: $(TARGET_INTRANET)
                     timeout: 30
                     title: 'SimulacionCuota: invoke'
                     verb: POST
@@ -364,7 +370,70 @@ x-ibm-configuration:
                       type: whitelist
                     inject-proxy-headers: false
                 - gatewayscript:
-                    source: "var apim=require('apim');\nvar mon = require('local:///js/ValidationStatus.js'); \r\nvar statusCode = apim.getvariable('SimulacionCuotaOut.status.code');\r\nvar resBody = apim.getvariable('SimulacionCuotaOut.body');\r\nvar messageId = apim.getvariable('message.headers.X-Global-Transaction-ID');\r\nvar gsPolicyMod = require('policy/policy-utility.js');\r\nvar transform = require('transform');\r\n\r\nif(statusCode == 200) {\r\n    var options = {\r\n        'expression': '//ns1:SimulacionCuotaResult',\r\n        'xmldom': resBody,\r\n        'namespace': { 'ns1': 'http://tempuri.org/WSHpcIntranet/Simulacion' }\r\n    };\r\n    transform.xpath(options, function(error, xml) {\r\n        if(error) {\r\n            apim.output('application/json');\r\n            throw error;\r\n        } else {\r\n            var result = xml.item(0).childNodes;\r\n            var errorCode = result.item(4).childNodes.item(0).textContent;\r\n            if(errorCode == '0') {\r\n                apim.setvariable('message.headers.X-INT-MessageId-Res', messageId);\r\n                apim.setvariable('message.headers.X-Global-Transaction-ID',' ','clear');\r\n                apim.setvariable('message.body', '{\"ordinaryInstallments\":' +  result.item(0).textContent + ',\"extraordinaryInstallments\":' + result.item(1).textContent + ',\"balloonInstallments\":' + result.item(2).textContent + ',\"tcea\":' + result.item(3).textContent + '}');\r\n                apim.output('application/json');\r\n                gsPolicyMod.SetNextStep('_SKIP_ALL_');\r\n            } else {\r\n                mon.generateError403(errorCode, result.item(4).childNodes.item(1).textContent, messageId);\r\n            }\r\n        }\r\n    });\r\n} else {\r\n    var options = { \r\n        'expression': '//faultstring', \r\n        'xmldom': resBody\r\n    }; \r\n    transform.xpath(options, function(error, xml) {\r\n        if(error) {\r\n            apim.output('application/json');\r\n            throw error;\r\n        } else {\r\n            apim.setvariable('message.headers.X-INT-MessageId-Res', messageId);\r\n            apim.setvariable('message.headers.X-Global-Transaction-ID',' ','clear');\r\n            apim.setvariable('message.status.code', 500);\r\n            apim.setvariable('message.status.reason', 'Internal Server Error');\r\n            apim.setvariable('message.body', '{\"httpCode\": \"500\",\"httpMessage\": \"Internal Server Error\",\"moreInformation\": \"An error ocurred when invoking the service bus provider. ' + xml.item(0).textContent + '\"}');\r\n            apim.output('application/json');\r\n            gsPolicyMod.SetNextStep('_SKIP_ALL_');\r\n        }\r\n    });  \r\n}"
+                    source: >-
+                      var apim=require('apim');
+
+                      //var mon = require('local:///js/ValidationStatus.js'); 
+
+                      var statusCode =
+                      apim.getvariable('SimulacionCuotaOut.status.code');
+
+                      var resBody = apim.getvariable('SimulacionCuotaOut.body');
+
+                      var messageId =
+                      apim.getvariable('message.headers.X-Global-Transaction-ID');
+
+                      //var gsPolicyMod = require('policy/policy-utility.js');
+
+                      var transform = require('transform');
+
+                      context.set('message.headers.skip',false);
+
+
+                      if(statusCode == 200) {
+                          var options = {
+                              'expression': '//ns1:SimulacionCuotaResult',
+                              'xmldom': resBody,
+                              'namespace': { 'ns1': 'http://tempuri.org/WSHpcIntranet/Simulacion' }
+                          };
+                          transform.xpath(options, function(error, xml) {
+                              if(error) {
+                                  apim.output('application/json');
+                                  throw error;
+                              } else {
+                                  var result = xml.item(0).childNodes;
+                                  var errorCode = result.item(4).childNodes.item(0).textContent;
+                                  if(errorCode == '0') {
+                                      apim.setvariable('message.headers.X-INT-MessageId-Res', messageId);
+                                      apim.setvariable('message.headers.X-Global-Transaction-ID',' ','clear');
+                                      apim.setvariable('message.body', '{"ordinaryInstallments":' +  result.item(0).textContent + ',"extraordinaryInstallments":' + result.item(1).textContent + ',"balloonInstallments":' + result.item(2).textContent + ',"tcea":' + result.item(3).textContent + '}');
+                                      apim.output('application/json');
+                                      context.set('message.headers.skip',true);
+                                  } else {
+                                      mon.generateError403(errorCode, result.item(4).childNodes.item(1).textContent, messageId);
+                                  }
+                              }
+                          });
+                      } else {
+                          var options = { 
+                              'expression': '//faultstring', 
+                              'xmldom': resBody
+                          }; 
+                          transform.xpath(options, function(error, xml) {
+                              if(error) {
+                                  apim.output('application/json');
+                                  throw error;
+                              } else {
+                                  apim.setvariable('message.headers.X-INT-MessageId-Res', messageId);
+                                  apim.setvariable('message.headers.X-Global-Transaction-ID',' ','clear');
+                                  apim.setvariable('message.status.code', 500);
+                                  apim.setvariable('message.status.reason', 'Internal Server Error');
+                                  apim.setvariable('message.body', '{"httpCode": "500","httpMessage": "Internal Server Error","moreInformation": "An error ocurred when invoking the service bus provider. ' + xml.item(0).textContent + '"}');
+                                  apim.output('application/json');
+                                  context.set('message.headers.skip',true);
+                              }    
+                          });  
+                      }
                     title: create response
                     version: 2.0.0
                     comment:
@@ -379,6 +448,10 @@ x-ibm-configuration:
                         https://www.ibm.com/support/knowledgecenter/SSMNED_v10/com.ibm.apic.porting.doc/porting_messages.html#GWS_PREPEND_REQUIRE_APIM
             - condition: '($httpVerb() = "GET" and $operationPath() = "/{loanid}")'
               execute:
+                - gatewayscript:
+                    version: 2.0.0
+                    title: evento01
+                    source: "var urlopen = require('urlopen');\nif (context.get('request.verb')==='GET'){\n\tauditoria01(context.get('request.querystring'));\n}else{\n\tcontext.request.body.readAsJSON(function (error, json) {\n\t\tif (error) {\n\t\t\tauditoria01(error.message);\n\t\t}else{\n\t\t\tauditoria01(JSON.stringify(json));\n\t\t}});\n}\n\nfunction auditoria01(message){\n\tcontext.set('codServicio','B0037');\n\tcontext.set('version','v1.0');\t\n\tcontext.set('grupoServicio','0002');\n\tvar campo1 = context.get('request.headers.consumerId');\n\tvar campo2 = context.get('request.headers.channelId');\n\tvar campo3 = context.get('request.headers.serviceId');\n\tvar campo4 = context.get('request.headers.netId');\n\tvar campo5 = context.get('request.headers.messageId');\n\tvar campo6 //= context.get();\n\tvar campo7 //= context.get();\n\tvar campo8 //= context.get();\n\tvar campo9 //= context.get();\n\n\tcontext.set('message.headers.CODIGO',context.get('codServicio'));\n\tcontext.set('message.headers.Particion', context.get('grupoServicio') + context.get('anomes') );\n\tvar reqAudit = '<AUDITORIA><REGISTRO><TIER>1</TIER><MSGID>' + context.get('message.headers.Msgid') +\n\t\t'</MSGID><FECHAHORA>' + context.get('fechaHoraIni') +\n\t\t'</FECHAHORA><HORA>' +  context.get('hora')+ \n\t\t'</HORA><SERVICIO>' +context.get('message.headers.CODIGO')+\n\t\t'</SERVICIO><NOMSERVICIO/><ORIGEN>' + context.get('request.headers.ipOrigen') + \n\t\t'</ORIGEN><PARTICION>' +context.get('message.headers.Particion') + \n\t\t'</PARTICION><RUTA>0</RUTA><DIA>' + context.get('dia')+\n\t\t'</DIA><ENCRIPTA>N</ENCRIPTA><NOTIFICA>S</NOTIFICA><PROTOCOLO>02</PROTOCOLO><DOMINIO>' + (context.get('api.org.name') + ' ' + context.get('api.catalog.name')).substr(0,15)+\n\t\t'</DOMINIO><EVENTO>01</EVENTO><TIPO>01</TIPO><USUARIO>' +context.get('client.app.name')+\n\t\t'</USUARIO><VERSION>' +context.get('version')+\n\t\t'</VERSION><MESSAGEID>' +context.get('request.headers.traceId')+\n\t\t'</MESSAGEID><DATO><Mensaje><![CDATA[' + message + ']]></Mensaje></DATO></REGISTRO>' +\n\t\t'<FUNCIONAL><CAMPO01>' +(campo1 === null || campo1 === undefined ? '' : campo1)+\n\t\t'</CAMPO01><CAMPO02>' +(campo2 === null || campo2 === undefined ? '' : campo2)+\n\t\t'</CAMPO02><CAMPO03>' +(campo3 === null || campo3 === undefined ? '' : campo3)+\n\t\t'</CAMPO03><CAMPO04>' +(campo4 === null || campo4 === undefined ? '' : campo4)+\n\t\t'</CAMPO04><CAMPO05>' +(campo5 === null || campo5 === undefined ? '' : campo5)+\n\t\t'</CAMPO05><CAMPO06>' +(campo6 === null || campo6 === undefined ? '' : campo6)+\n\t\t'</CAMPO06><CAMPO07>' +(campo7 === null || campo7 === undefined ? '' : campo7)+\n\t\t'</CAMPO07><CAMPO08>' +(campo8 === null || campo8 === undefined ? '' : campo8)+\n\t\t'</CAMPO08><CAMPO09>' +(campo9 === null || campo9 === undefined ? '' : campo9)+\n\t\t'</CAMPO09></FUNCIONAL></AUDITORIA>';\n\n\t\tvar optionsReq = {\n\t\t\ttarget: context.get('TARGET_AUDIT'),\n\t\t\tmethod: 'POST',\n\t\t\tcontentType: 'text/xml; charset=utf-8',\n\t\t\ttimeout: 3,\n\t\t\tsslClientProfile: 'tls-client-profile-catalog-default',\n\t\t\tdata: reqAudit \n\t\t  };\n\t\t\n\t\turlopen.open(optionsReq, function (error, responseToken) {});\n\n}"
                 - map:
                     actions:
                       - default: text/xml
@@ -390,46 +463,46 @@ x-ibm-configuration:
                         set: body.Envelope.Header.Security.UsernameToken.Username
                       - default: $(passwd)
                         set: body.Envelope.Header.Security.UsernameToken.Password
-                      - from: X-INT-Consumer-Id
+                      - from: consumerId
                         set: body.Envelope.Header.HeaderRequest.request.consumerId
-                      - from: X-INT-Message-Id
+                      - from: messageId
                         set: body.Envelope.Header.HeaderRequest.request.messageId
-                      - from: X-INT-Timestamp
+                      - from: timeStamp
                         set: body.Envelope.Header.HeaderRequest.request.timestamp
-                      - from: X-INT-Country-Id
+                      - from: countryCode
                         set: body.Envelope.Header.HeaderRequest.request.countryCode
-                      - from: X-INT-Device-Id
+                      - from: deviceId
                         set: body.Envelope.Header.HeaderRequest.identity.deviceId
-                      - from: X-INT-Server-Id
+                      - from: serverId
                         set: body.Envelope.Header.HeaderRequest.identity.serverId
                       - from: loanid
                         set: >-
                           body.Envelope.Body.consultarDetalleCreditoHipotecario.IdDocumentoCredito.keyDocumento
                     inputs:
-                      X-INT-Consumer-Id:
+                      consumerId:
                         schema:
                           type: string
-                        variable: message.headers.X-INT-Consumer-Id
-                      X-INT-Country-Id:
+                        variable: message.headers.consumerId
+                      countryCode:
                         schema:
                           type: string
-                        variable: message.headers.X-INT-Country-Id
-                      X-INT-Device-Id:
+                        variable: message.headers.countryCode
+                      deviceId:
                         schema:
                           type: string
-                        variable: message.headers.X-INT-Device-Id
-                      X-INT-Message-Id:
+                        variable: message.headers.deviceId
+                      messageId:
                         schema:
                           type: string
-                        variable: message.headers.X-INT-Message-Id
-                      X-INT-Server-Id:
+                        variable: message.headers.messageId
+                      serverId:
                         schema:
                           type: string
-                        variable: message.headers.X-INT-Server-Id
-                      X-INT-Timestamp:
+                        variable: message.headers.serverId
+                      timeStamp:
                         schema:
                           type: dateTime
-                        variable: message.headers.X-INT-Timestamp
+                        variable: message.headers.timeStamp
                       loanid:
                         schema:
                           type: string
@@ -473,9 +546,8 @@ x-ibm-configuration:
                 - invoke:
                     cache-response: protocol
                     cache-ttl: 900
-                    output: callServiceOut
                     target-url: >-
-                      $(URL_DPSPLIT)/ibk/srv/MPO/Colocaciones/consultarDetalleCreditoHipotecario/v1.0
+                      $(TARGET_IIB):$(PORT_IS_MPO03_M03)/ibk/srv/MPO/Colocaciones/consultarDetalleCreditoHipotecario/v1.0
                     timeout: 30
                     title: 'callService: invoke'
                     verb: POST
@@ -504,205 +576,325 @@ x-ibm-configuration:
                     parameter-control:
                       type: whitelist
                     inject-proxy-headers: false
-                - map:
-                    actions:
-                      - from: input.Envelope.Header.HeaderResponse.timestamp
-                        set: >-
-                          response.MessageResponse.Header.HeaderResponse.timestamp
-                      - from: >-
-                          input.Envelope.Header.HeaderResponse.status.responseType
-                        set: >-
-                          response.MessageResponse.Header.HeaderResponse.status.responseType
-                      - from: >-
-                          input.Envelope.Header.HeaderResponse.status.busResponseCode
-                        set: >-
-                          response.MessageResponse.Header.HeaderResponse.status.busResponseCode
-                      - from: >-
-                          input.Envelope.Header.HeaderResponse.status.busResponseMessage
-                        set: >-
-                          response.MessageResponse.Header.HeaderResponse.status.busResponseMessage
-                      - from: >-
-                          input.Envelope.Header.HeaderResponse.status.srvResponseCode
-                        set: >-
-                          response.MessageResponse.Header.HeaderResponse.status.srvResponseCode
-                      - from: >-
-                          input.Envelope.Header.HeaderResponse.status.srvResponseMessage
-                        set: >-
-                          response.MessageResponse.Header.HeaderResponse.status.srvResponseMessage
-                      - from: >-
-                          input.Envelope.Header.HeaderResponse.status.eqvResponseCode
-                        set: >-
-                          response.MessageResponse.Header.HeaderResponse.status.eqvResponseCode
-                      - from: >-
-                          input.Envelope.Header.HeaderResponse.status.eqvResponseMessage
-                        set: >-
-                          response.MessageResponse.Header.HeaderResponse.status.eqvResponseMessage
-                      - from: >-
-                          input.Envelope.Header.HeaderResponse.status.messageIdRes
-                        set: >-
-                          response.MessageResponse.Header.HeaderResponse.status.messageIdRes
-                      - set: response.MessageResponse.Body
-                        value: |-
-                          var body = {};
-                          body;
-                      - from: >-
-                          input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.numeroPrestamo
-                        set: response.MessageResponse.Body.loan.id
-                      - from: >-
-                          input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.producto
-                        set: response.MessageResponse.Body.loan.description
-                      - from: >-
-                          input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.codigoEstado
-                        set: response.MessageResponse.Body.loan.statusId
-                      - from: >-
-                          input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.situacion
-                        set: response.MessageResponse.Body.loan.statusName
-                      - from: >-
-                          input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.numeroCuentaCargo
-                        set: response.MessageResponse.Body.loan.chargeAccountNumber
-                      - from: >-
-                          input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.tienda
-                        set: response.MessageResponse.Body.loan.branchName
-                      - from: >-
-                          input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.codigoUnicoCliente
-                        set: response.MessageResponse.Body.loan.customer.id
-                      - from: >-
-                          input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.cliente
-                        set: response.MessageResponse.Body.loan.customer.fullName
-                      - from: >-
-                          input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.sectorista
-                        set: response.MessageResponse.Body.loan.sectoristFullName
-                      - from: >-
-                          input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.promotor
-                        set: response.MessageResponse.Body.loan.promoterFullName
-                      - from: >-
-                          input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.fechaProceso
-                        set: response.MessageResponse.Body.loan.processDate
-                      - from: >-
-                          input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.fechaVencimientoPrestamo
-                        set: response.MessageResponse.Body.loan.dueDate
-                      - from: >-
-                          input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.fechaDesembolso
-                        set: response.MessageResponse.Body.loan.disbursementDate
-                      - from: >-
-                          input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.fechaPrimerVencimiento
-                        set: response.MessageResponse.Body.loan.firstDueDate
-                      - from: >-
-                          input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.fechaProximoVencimiento
-                        set: response.MessageResponse.Body.loan.nextDueDate
-                      - from: >-
-                          input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.plazo
-                        set: response.MessageResponse.Body.loan.term
-                      - from: >-
-                          input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.periodoGracia
-                        set: response.MessageResponse.Body.loan.gracePeriod
-                      - from: >-
-                          input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.tasaInteres
-                        set: response.MessageResponse.Body.loan.interest.tea
-                      - from: >-
-                          input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.tasaCostoEfectiva
-                        set: response.MessageResponse.Body.loan.interest.tce
-                      - from: >-
-                          input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.codigoMoneda
-                        set: response.MessageResponse.Body.loan.currencyId
-                      - from: >-
-                          input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.descripcionMoneda
-                        set: response.MessageResponse.Body.loan.currencyName
-                      - from: >-
-                          input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.importeDesembolsado
-                        set: response.MessageResponse.Body.loan.disbursedAmount
-                      - from: >-
-                          input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.saldoCapital
-                        set: response.MessageResponse.Body.loan.capitalBalance
-                      - from: >-
-                          input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.importePorVencer
-                        set: response.MessageResponse.Body.loan.dueAmount
-                      - from: >-
-                          input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.importeDeudaVencida
-                        set: response.MessageResponse.Body.loan.debtDueAmount
-                      - from: >-
-                          input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.tipoCuota
-                        set: response.MessageResponse.Body.loan.installment.type
-                      - from: >-
-                          input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.cuotasPagadas
-                        set: response.MessageResponse.Body.loan.installment.paid
-                      - from: >-
-                          input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.cuotasPendientes
-                        set: response.MessageResponse.Body.loan.installment.pending
-                      - from: >-
-                          input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.cuotasVencidas
-                        set: response.MessageResponse.Body.loan.installment.overdue
-                      - from: >-
-                          input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.fechaCuotaGratis
-                        set: >-
-                          response.MessageResponse.Body.loan.installment.freeDate
-                      - from: >-
-                          input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.diasMora
-                        set: response.MessageResponse.Body.loan.daysPastDue
-                      - from: >-
-                          input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.tipoSeguroDesgravamen
-                        set: >-
-                          response.MessageResponse.Body.loan.insurance.payment.type
-                      - from: >-
-                          input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.porcentajeSeguroDesgravamen
-                        set: >-
-                          response.MessageResponse.Body.loan.insurance.payment.percentage
-                      - from: >-
-                          input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.tipoSeguroBien
-                        set: >-
-                          response.MessageResponse.Body.loan.insurance.patrimony.type
-                      - from: >-
-                          input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.porcentajeSeguroBien
-                        set: >-
-                          response.MessageResponse.Body.loan.insurance.patrimony.percentage
-                      - from: >-
-                          input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.importeAsegurado
-                        set: >-
-                          response.MessageResponse.Body.loan.insurance.patrimony.amount
-                      - from: >-
-                          input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.monedaSeguroDesgravamen
-                        set: response.MessageResponse.Body.loan.tax.currency
-                      - from: >-
-                          input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.importeGravamen
-                        set: response.MessageResponse.Body.loan.tax.amount
-                    inputs:
-                      input:
-                        content: application/xml
-                        schema:
-                          $ref: >-
-                            #/x-ibm-configuration/targets/IBKServiceB0037/definitions/callServiceOutput
-                        variable: callServiceOut.body
-                    outputs:
-                      response:
-                        schema:
-                          $ref: '#/definitions/get_loanid_res_body'
-                        variable: message.body
-                    title: 'callService: output'
+                - gatewayscript:
                     version: 2.0.0
-                    comment:
-                      - >-
-                        MAP03: Converted `map` to API Gateway `map` for
-                        conformance.
-                      - >-
-                        API28: Moved `x-ibm-gateway-map-resolve-apic-variables`
-                        from API properties to this policy option
-                        `mapResolveApicVariables` and set to [true]. For
-                        details, see:
-                        https://www.ibm.com/support/knowledgecenter/SSMNED_v10/com.ibm.apic.porting.doc/porting_messages.html#MOVED_API_PROP_TO_POLICY_OPTION
-                      - >-
-                        MAP04: Set `map` option of mapResolveApicVariables to
-                        previous default of `true` for compatability. For
-                        details, see:
-                        https://www.ibm.com/support/knowledgecenter/SSMNED_v10/com.ibm.apic.porting.doc/porting_messages.html#MAP_RESOLVE_VARS_SET_EXPLICIT_TRUE
-                    options:
-                      mapResolveApicVariables: true
+                    title: migctrlstatus
+                    source: >-
+                      var apim = require('apim');
+
+                      var transform = require('transform');
+
+                      var converter = require('json-xml-converter');
+
+                      var resp = apim.getvariable('message.body');
+
+                      context.set('message.headers.skip', false);
+
+
+                      var options = {
+                        'expression': '//v4:HeaderResponse/status', 'xmldom': resp,
+                        'namespace': { 'v4': 'http://interbank.com.pe/srv/generic/messageFormat/v4.0/' }
+                      };
+
+                      transform.xpath(options, function (err, statusType) {
+                        if (err) { session.output.write(err); }
+                        else {
+                          var statusXML = XML.stringify({ omitXmlDeclaration: true }, statusType);
+                          var xml = XML.parse(statusXML);
+                          var sJson = converter.toJSON('badgerfish', xml);
+
+                          switch (sJson.status.responseType.$) {
+                            case '0': apim.setvariable('callServiceOut.body', resp);
+                              apim.setvariable('message.headers.X-INT-MessageId-Res', sJson.status.messageIdRes.$);
+                              break;
+                            case '1': errorGeneric(401, 'Unauthorized', '');
+                              break;
+                            case '10': errorGeneric(401, 'Unauthorized', '');
+                              break;
+                            case '2': errorGeneric(400, 'Bad Request', '');
+                              break;
+                            case '3':
+                              switch (sJson.status.busResponseCode.$) {
+                                case '301': errorGeneric(500, 'Internal Server Error', sJson.status.messageIdRes.$, 'Service bus provider timeout');
+                                  break;
+                                case '302': errorGeneric(500, 'Internal Server Error', sJson.status.messageIdRes.$, 'An error occurred while invoking the service bus provider');
+                                  break;
+                                case '303': errorGeneric(500, 'Internal Server Error', sJson.status.messageIdRes.$, 'An error ocurred while invoking the service bus');
+                                  break;
+                              }
+                              break;
+                            case '4': errorGeneric(500, 'Internal Server Error', sJson.status.messageIdRes.$);
+                              break;
+                            case '5': errorGeneric403(sJson.status.srvResponseCode.$, sJson.status.srvResponseMessage.$, sJson.status.messageIdRes.$);
+                              break;
+                            default: errorGeneric(500, 'Internal Server Error', sJson.status.messageIdRes.$);
+                          }
+                        }
+                      });
+
+
+
+
+                      function errorGeneric403(providerCodeError,
+                      providerMessageError, messageIdRes) {
+                        context.set('message.headers.X-INT-MessageId-Res', messageIdRes);
+                        context.set('message.status.code', '403');
+                        context.set('message.status.reason', 'Business error');
+                        context.set('message.body', '{"httpCode":"403","httpMessage":"Business error","providerCode": "' + providerCodeError + '","providerMessage": "' + providerMessageError + '"}');
+                        apim.output('application/json');
+                        context.set('message.headers.skip', true);
+
+                      }
+
+
+                      function errorGeneric(statusHttp, reasonHttp,
+                      messageIdRes, moreInformation) {
+                        context.set('message.headers.X-INT-MessageId-Res', messageIdRes);
+                        context.set('message.status.code', statusHttp);
+                        context.set('message.status.reason', reasonHttp);
+                        if (typeof moreInformation == 'undefined') {
+                          context.set('message.body', '{"httpCode":"' + statusHttp + '","httpMessage":"' + reasonHttp + '"}');
+                        } else {
+                          context.set('message.body', '{"httpCode":"' + statusHttp + '","httpMessage":"' + reasonHttp + '", "moreInformation":"' + moreInformation + '"}');
+                        }
+                        apim.output('application/json');
+                        context.set('message.headers.skip', true);
+                      }
+                - switch:
+                    version: 2.0.0
+                    title: switch
+                    case:
+                      - condition: ($header("skip")=false)
+                        execute:
+                          - map:
+                              actions:
+                                - from: >-
+                                    input.Envelope.Header.HeaderResponse.timestamp
+                                  set: >-
+                                    response.MessageResponse.Header.HeaderResponse.timestamp
+                                - from: >-
+                                    input.Envelope.Header.HeaderResponse.status.responseType
+                                  set: >-
+                                    response.MessageResponse.Header.HeaderResponse.status.responseType
+                                - from: >-
+                                    input.Envelope.Header.HeaderResponse.status.busResponseCode
+                                  set: >-
+                                    response.MessageResponse.Header.HeaderResponse.status.busResponseCode
+                                - from: >-
+                                    input.Envelope.Header.HeaderResponse.status.busResponseMessage
+                                  set: >-
+                                    response.MessageResponse.Header.HeaderResponse.status.busResponseMessage
+                                - from: >-
+                                    input.Envelope.Header.HeaderResponse.status.srvResponseCode
+                                  set: >-
+                                    response.MessageResponse.Header.HeaderResponse.status.srvResponseCode
+                                - from: >-
+                                    input.Envelope.Header.HeaderResponse.status.srvResponseMessage
+                                  set: >-
+                                    response.MessageResponse.Header.HeaderResponse.status.srvResponseMessage
+                                - from: >-
+                                    input.Envelope.Header.HeaderResponse.status.eqvResponseCode
+                                  set: >-
+                                    response.MessageResponse.Header.HeaderResponse.status.eqvResponseCode
+                                - from: >-
+                                    input.Envelope.Header.HeaderResponse.status.eqvResponseMessage
+                                  set: >-
+                                    response.MessageResponse.Header.HeaderResponse.status.eqvResponseMessage
+                                - from: >-
+                                    input.Envelope.Header.HeaderResponse.status.messageIdRes
+                                  set: >-
+                                    response.MessageResponse.Header.HeaderResponse.status.messageIdRes
+                                - set: response.MessageResponse.Body
+                                  value: |-
+                                    var body = {};
+                                    body;
+                                - from: >-
+                                    input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.numeroPrestamo
+                                  set: response.MessageResponse.Body.loan.id
+                                - from: >-
+                                    input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.producto
+                                  set: >-
+                                    response.MessageResponse.Body.loan.description
+                                - from: >-
+                                    input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.codigoEstado
+                                  set: response.MessageResponse.Body.loan.statusId
+                                - from: >-
+                                    input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.situacion
+                                  set: >-
+                                    response.MessageResponse.Body.loan.statusName
+                                - from: >-
+                                    input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.numeroCuentaCargo
+                                  set: >-
+                                    response.MessageResponse.Body.loan.chargeAccountNumber
+                                - from: >-
+                                    input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.tienda
+                                  set: >-
+                                    response.MessageResponse.Body.loan.branchName
+                                - from: >-
+                                    input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.codigoUnicoCliente
+                                  set: >-
+                                    response.MessageResponse.Body.loan.customer.id
+                                - from: >-
+                                    input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.cliente
+                                  set: >-
+                                    response.MessageResponse.Body.loan.customer.fullName
+                                - from: >-
+                                    input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.sectorista
+                                  set: >-
+                                    response.MessageResponse.Body.loan.sectoristFullName
+                                - from: >-
+                                    input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.promotor
+                                  set: >-
+                                    response.MessageResponse.Body.loan.promoterFullName
+                                - from: >-
+                                    input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.fechaProceso
+                                  set: >-
+                                    response.MessageResponse.Body.loan.processDate
+                                - from: >-
+                                    input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.fechaVencimientoPrestamo
+                                  set: response.MessageResponse.Body.loan.dueDate
+                                - from: >-
+                                    input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.fechaDesembolso
+                                  set: >-
+                                    response.MessageResponse.Body.loan.disbursementDate
+                                - from: >-
+                                    input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.fechaPrimerVencimiento
+                                  set: >-
+                                    response.MessageResponse.Body.loan.firstDueDate
+                                - from: >-
+                                    input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.fechaProximoVencimiento
+                                  set: >-
+                                    response.MessageResponse.Body.loan.nextDueDate
+                                - from: >-
+                                    input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.plazo
+                                  set: response.MessageResponse.Body.loan.term
+                                - from: >-
+                                    input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.periodoGracia
+                                  set: >-
+                                    response.MessageResponse.Body.loan.gracePeriod
+                                - from: >-
+                                    input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.tasaInteres
+                                  set: >-
+                                    response.MessageResponse.Body.loan.interest.tea
+                                - from: >-
+                                    input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.tasaCostoEfectiva
+                                  set: >-
+                                    response.MessageResponse.Body.loan.interest.tce
+                                - from: >-
+                                    input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.codigoMoneda
+                                  set: >-
+                                    response.MessageResponse.Body.loan.currencyId
+                                - from: >-
+                                    input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.descripcionMoneda
+                                  set: >-
+                                    response.MessageResponse.Body.loan.currencyName
+                                - from: >-
+                                    input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.importeDesembolsado
+                                  set: >-
+                                    response.MessageResponse.Body.loan.disbursedAmount
+                                - from: >-
+                                    input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.saldoCapital
+                                  set: >-
+                                    response.MessageResponse.Body.loan.capitalBalance
+                                - from: >-
+                                    input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.importePorVencer
+                                  set: response.MessageResponse.Body.loan.dueAmount
+                                - from: >-
+                                    input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.importeDeudaVencida
+                                  set: >-
+                                    response.MessageResponse.Body.loan.debtDueAmount
+                                - from: >-
+                                    input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.tipoCuota
+                                  set: >-
+                                    response.MessageResponse.Body.loan.installment.type
+                                - from: >-
+                                    input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.cuotasPagadas
+                                  set: >-
+                                    response.MessageResponse.Body.loan.installment.paid
+                                - from: >-
+                                    input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.cuotasPendientes
+                                  set: >-
+                                    response.MessageResponse.Body.loan.installment.pending
+                                - from: >-
+                                    input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.cuotasVencidas
+                                  set: >-
+                                    response.MessageResponse.Body.loan.installment.overdue
+                                - from: >-
+                                    input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.fechaCuotaGratis
+                                  set: >-
+                                    response.MessageResponse.Body.loan.installment.freeDate
+                                - from: >-
+                                    input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.diasMora
+                                  set: >-
+                                    response.MessageResponse.Body.loan.daysPastDue
+                                - from: >-
+                                    input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.tipoSeguroDesgravamen
+                                  set: >-
+                                    response.MessageResponse.Body.loan.insurance.payment.type
+                                - from: >-
+                                    input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.porcentajeSeguroDesgravamen
+                                  set: >-
+                                    response.MessageResponse.Body.loan.insurance.payment.percentage
+                                - from: >-
+                                    input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.tipoSeguroBien
+                                  set: >-
+                                    response.MessageResponse.Body.loan.insurance.patrimony.type
+                                - from: >-
+                                    input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.porcentajeSeguroBien
+                                  set: >-
+                                    response.MessageResponse.Body.loan.insurance.patrimony.percentage
+                                - from: >-
+                                    input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.importeAsegurado
+                                  set: >-
+                                    response.MessageResponse.Body.loan.insurance.patrimony.amount
+                                - from: >-
+                                    input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.monedaSeguroDesgravamen
+                                  set: >-
+                                    response.MessageResponse.Body.loan.tax.currency
+                                - from: >-
+                                    input.Envelope.Body.consultarDetalleCreditoHipotecarioResponse.creditoHipotecario.importeGravamen
+                                  set: >-
+                                    response.MessageResponse.Body.loan.tax.amount
+                              inputs:
+                                input:
+                                  content: application/xml
+                                  schema:
+                                    $ref: >-
+                                      #/x-ibm-configuration/targets/IBKServiceB0037/definitions/callServiceOutput
+                                  variable: callServiceOut.body
+                              outputs:
+                                response:
+                                  schema:
+                                    $ref: '#/definitions/get_loanid_res_body'
+                                  variable: message.body
+                              title: 'callService: output'
+                              version: 2.0.0
+                              comment:
+                                - >-
+                                  MAP03: Converted `map` to API Gateway `map`
+                                  for conformance.
+                                - >-
+                                  API28: Moved
+                                  `x-ibm-gateway-map-resolve-apic-variables`
+                                  from API properties to this policy option
+                                  `mapResolveApicVariables` and set to [true].
+                                  For details, see:
+                                  https://www.ibm.com/support/knowledgecenter/SSMNED_v10/com.ibm.apic.porting.doc/porting_messages.html#MOVED_API_PROP_TO_POLICY_OPTION
+                                - >-
+                                  MAP04: Set `map` option of
+                                  mapResolveApicVariables to previous default of
+                                  `true` for compatability. For details, see:
+                                  https://www.ibm.com/support/knowledgecenter/SSMNED_v10/com.ibm.apic.porting.doc/porting_messages.html#MAP_RESOLVE_VARS_SET_EXPLICIT_TRUE
+                              options:
+                                mapResolveApicVariables: true
+                      - otherwise: []
             - condition: ($httpVerb() = "GET" and $operationPath() = "/disbursement")
               execute:
                 - gatewayscript:
                     source: >-
                       var apim=require('apim');
 
-                      var gsPolicyMod = require('policy/policy-utility.js');
+                      //var gsPolicyMod = require('policy/policy-utility.js');
 
                       var HTTPMESSAGE_400 = "Bad Request";
 
@@ -724,7 +916,7 @@ x-ibm-configuration:
                               apim.setvariable('message.status.reason', httpMessage);
                               apim.setvariable('message.body', '{"httpCode":"'+httpCode+'","httpMessage":"'+httpMessage+'"}');
                               apim.output('aplication/json');
-                              gsPolicyMod.SetNextStep('_SKIP_ALL_');
+                              //gsPolicyMod.SetNextStep('_SKIP_ALL_');
                       }
                     title: gatewayscript
                     version: 2.0.0
@@ -802,14 +994,12 @@ x-ibm-configuration:
 
                       // Remove variables message.headers
 
-                      apim.setvariable('message.headers.X-INT-Consumer-Id','
+                      apim.setvariable('message.headers.consumerId','
                       ','clear');
 
-                      apim.setvariable('message.headers.X-INT-Timestamp','
-                      ','clear');
+                      apim.setvariable('message.headers.timeStamp',' ','clear');
 
-                      apim.setvariable('message.headers.X-INT-Message-Id','
-                      ','clear');
+                      apim.setvariable('message.headers.messageId',' ','clear');
                     title: gatewayscript
                     version: 2.0.0
                     comment:
@@ -822,13 +1012,20 @@ x-ibm-configuration:
                         `gatewayscript` policy to conform to the API Gateway
                         specification. For details, see:
                         https://www.ibm.com/support/knowledgecenter/SSMNED_v10/com.ibm.apic.porting.doc/porting_messages.html#GWS_PREPEND_REQUIRE_APIM
+                - set-variable:
+                    version: 2.0.0
+                    title: set-rPath
+                    actions:
+                      - set: message.headers.rPath
+                        value: $(TARGET_INTRANET)
+                        type: string
                 - invoke:
                     cache-response: no-cache
                     cache-ttl: 900
                     output: callServiceOut
                     stop-on-error:
                       - ConnectionError
-                    target-url: $(URL_ValidarDesembolsoCredito)
+                    target-url: $(TARGET_INTRANET)
                     timeout: 30
                     title: 'invoke: disbursement'
                     verb: POST
@@ -861,9 +1058,9 @@ x-ibm-configuration:
                     source: >-
                       var apim=require('apim');
 
-                      var mon = require('local:///js/ValidationStatus.js');
+                      //var mon = require('local:///js/ValidationStatus.js');
 
-                      var gsPolicyMod = require('policy/policy-utility.js');
+                      //var gsPolicyMod = require('policy/policy-utility.js');
 
                       var statusHTTPCode =
                       apim.getvariable('message.status.code');
@@ -894,6 +1091,7 @@ x-ibm-configuration:
 
                       apim.setvariable('message.headers.X-INT-MessageId-Res',
                       messageId);
+                              
                               
                        if(statusHTTPCode == 500){
                               
@@ -926,7 +1124,7 @@ x-ibm-configuration:
                          
                          
                          apim.output('application/json');
-                         gsPolicyMod.SetNextStep('_SKIP_ALL_');
+                         //gsPolicyMod.SetNextStep('_SKIP_ALL_');
                               
                       } 
                     title: gatewayscript
@@ -1017,24 +1215,24 @@ x-ibm-configuration:
                         set: body.Envelope.Header.Security.UsernameToken.Username
                       - default: $(passwd)
                         set: body.Envelope.Header.Security.UsernameToken.Password
-                      - from: X-INT-Service-Id
+                      - from: serviceId
                         set: body.Envelope.Header.HeaderRequest.request.serviceId
-                      - from: X-INT-Consumer-Id
+                      - from: consumerId
                         set: body.Envelope.Header.HeaderRequest.request.consumerId
-                      - from: X-INT-Message-Id
+                      - from: messageId
                         set: body.Envelope.Header.HeaderRequest.request.messageId
-                      - from: X-INT-Timestamp
+                      - from: timeStamp
                         set: body.Envelope.Header.HeaderRequest.request.timestamp
-                      - from: X-INT-Net-Id
+                      - from: netId
                         set: body.Envelope.Header.HeaderRequest.identity.netId
-                      - from: X-INT-User-Id
+                      - from: userId
                         set: body.Envelope.Header.HeaderRequest.identity.userId
-                      - from: X-INT-Supervisor-Id
+                      - from: supervisorId
                         set: >-
                           body.Envelope.Header.HeaderRequest.identity.supervisorId
-                      - from: X-INT-Device-Id
+                      - from: deviceId
                         set: body.Envelope.Header.HeaderRequest.identity.deviceId
-                      - from: X-INT-Branch-Id
+                      - from: branchId
                         set: body.Envelope.Header.HeaderRequest.identity.branchCode
                       - from: lineId
                         set: >-
@@ -1106,42 +1304,42 @@ x-ibm-configuration:
                         set: >-
                           body.Envelope.Body.desembolsarADS.datosDesembolso.tarjetaLogin
                     inputs:
-                      X-INT-Branch-Id:
+                      branchId:
                         schema:
                           type: string
-                        variable: message.headers.X-INT-Branch-Id
-                      X-INT-Consumer-Id:
+                        variable: message.headers.branchId
+                      consumerId:
                         schema:
                           type: string
-                        variable: message.headers.X-INT-Consumer-Id
-                      X-INT-Device-Id:
+                        variable: message.headers.consumerId
+                      deviceId:
                         schema:
                           type: string
-                        variable: message.headers.X-INT-Device-Id
-                      X-INT-Message-Id:
+                        variable: message.headers.deviceId
+                      messageId:
                         schema:
                           type: string
-                        variable: message.headers.X-INT-Message-Id
-                      X-INT-Net-Id:
+                        variable: message.headers.messageId
+                      netId:
                         schema:
                           type: string
-                        variable: message.headers.X-INT-Net-Id
-                      X-INT-Service-Id:
+                        variable: message.headers.netId
+                      serviceId:
                         schema:
                           type: string
-                        variable: message.headers.X-INT-Service-Id
-                      X-INT-Supervisor-Id:
+                        variable: message.headers.serviceId
+                      supervisorId:
                         schema:
                           type: string
-                        variable: message.headers.X-INT-Supervisor-Id
-                      X-INT-Timestamp:
+                        variable: message.headers.supervisorId
+                      timeStamp:
                         schema:
                           type: string
-                        variable: message.headers.X-INT-Timestamp
-                      X-INT-User-Id:
+                        variable: message.headers.timeStamp
+                      userId:
                         schema:
                           type: string
-                        variable: message.headers.X-INT-User-Id
+                        variable: message.headers.userId
                       input:
                         content: application/json
                         schema:
@@ -1310,10 +1508,6 @@ x-ibm-configuration:
                     case:
                       - condition: $header("skip")=false
                         execute:
-                          - gatewayscript:
-                              version: 2.0.0
-                              title: gatewayscript
-                              source: "var mon = require('local:///js/ValidationStatus.js'); \r\n\r\nmon.validateStatus('callServiceOut.body');\r\n//Valida el responseType de FK4 si es 0 sigue la operación\r\n//Si responseType es diferente a 0 genera el error correspondiente y omite las politicas que siguen."
                           - map:
                               actions:
                                 - from: >-
@@ -1400,24 +1594,24 @@ x-ibm-configuration:
                         set: body.Envelope.Header.Security.UsernameToken.Username
                       - default: $(passwd)
                         set: body.Envelope.Header.Security.UsernameToken.Password
-                      - from: X-INT-Service-Id
+                      - from: serviceId
                         set: body.Envelope.Header.HeaderRequest.request.serviceId
-                      - from: X-INT-Consumer-Id
+                      - from: consumerId
                         set: body.Envelope.Header.HeaderRequest.request.consumerId
-                      - from: X-INT-Message-Id
+                      - from: messageId
                         set: body.Envelope.Header.HeaderRequest.request.messageId
-                      - from: X-INT-Timestamp
+                      - from: timeStamp
                         set: body.Envelope.Header.HeaderRequest.request.timestamp
-                      - from: X-INT-Net-Id
+                      - from: netId
                         set: body.Envelope.Header.HeaderRequest.identity.netId
-                      - from: X-INT-User-Id
+                      - from: userId
                         set: body.Envelope.Header.HeaderRequest.identity.userId
-                      - from: X-INT-Supervisor-Id
+                      - from: supervisorId
                         set: >-
                           body.Envelope.Header.HeaderRequest.identity.supervisorId
-                      - from: X-INT-Device-Id
+                      - from: deviceId
                         set: body.Envelope.Header.HeaderRequest.identity.deviceId
-                      - from: X-INT-Branch-Id
+                      - from: branchId
                         set: body.Envelope.Header.HeaderRequest.identity.branchCode
                       - from: lineId
                         set: >-
@@ -1489,42 +1683,42 @@ x-ibm-configuration:
                         set: >-
                           body.Envelope.Body.desembolsarADS.datosBSE.numeroDocumento
                     inputs:
-                      X-INT-Branch-Id:
+                      branchId:
                         schema:
                           type: string
-                        variable: message.headers.X-INT-Branch-Id
-                      X-INT-Consumer-Id:
+                        variable: message.headers.branchId
+                      consumerId:
                         schema:
                           type: string
-                        variable: message.headers.X-INT-Consumer-Id
-                      X-INT-Device-Id:
+                        variable: message.headers.consumerId
+                      deviceId:
                         schema:
                           type: string
-                        variable: message.headers.X-INT-Device-Id
-                      X-INT-Message-Id:
+                        variable: message.headers.deviceId
+                      messageId:
                         schema:
                           type: string
-                        variable: message.headers.X-INT-Message-Id
-                      X-INT-Net-Id:
+                        variable: message.headers.messageId
+                      netId:
                         schema:
                           type: string
-                        variable: message.headers.X-INT-Net-Id
-                      X-INT-Service-Id:
+                        variable: message.headers.netId
+                      serviceId:
                         schema:
                           type: string
-                        variable: message.headers.X-INT-Service-Id
-                      X-INT-Supervisor-Id:
+                        variable: message.headers.serviceId
+                      supervisorId:
                         schema:
                           type: string
-                        variable: message.headers.X-INT-Supervisor-Id
-                      X-INT-Timestamp:
+                        variable: message.headers.supervisorId
+                      timeStamp:
                         schema:
                           type: string
-                        variable: message.headers.X-INT-Timestamp
-                      X-INT-User-Id:
+                        variable: message.headers.timeStamp
+                      userId:
                         schema:
                           type: string
-                        variable: message.headers.X-INT-User-Id
+                        variable: message.headers.userId
                       input:
                         content: application/json
                         schema:
@@ -1693,15 +1887,6 @@ x-ibm-configuration:
                     case:
                       - condition: $header("skip")=false
                         execute:
-                          - gatewayscript:
-                              source: "var mon = require('local:///js/ValidationStatus.js'); \r\n\r\nmon.validateStatus('callServiceOut.body');\r\n//Valida el responseType de FK4 si es 0 sigue la operación\r\n//Si responseType es diferente a 0 genera el error correspondiente y omite las politicas que siguen."
-                              title: gatewayscript
-                              version: 2.0.0
-                              comment:
-                                - >-
-                                  GWS04: Found `gatewayscript` policy. Porting
-                                  might be required. For details, see:
-                                  https://www.ibm.com/support/knowledgecenter/SSMNED_v10/com.ibm.apic.porting.doc/porting_messages.html#GWS_FOUND
                           - map:
                               actions:
                                 - from: >-
@@ -1757,7 +1942,7 @@ x-ibm-configuration:
                 "/agreements/documentId/{documentId}")
               execute:
                 - gatewayscript:
-                    source: "var apim=require('apim');\nvar messageIdX = apim.getvariable('message.headers.X-Global-Transaction-ID');\r\napim.setvariable('INTMessageIdRes', messageIdX);\r\n\r\n// Remove variables message.\r\napim.setvariable('message.headers.X-INT-Timestamp',' ','clear');\r\napim.setvariable('message.headers.X-INT-Message-Id',' ','clear');"
+                    source: "var apim=require('apim');\nvar messageIdX = apim.getvariable('message.headers.X-Global-Transaction-ID');\r\napim.setvariable('INTMessageIdRes', messageIdX);\r\n\r\n// Remove variables message.\r\napim.setvariable('message.headers.timeStamp',' ','clear');\r\napim.setvariable('message.headers.messageId',' ','clear');"
                     title: gatewayscript
                     version: 2.0.0
                     comment:
@@ -1789,7 +1974,7 @@ x-ibm-configuration:
                       consumerId:
                         schema:
                           type: string
-                        variable: message.headers.X-INT-Consumer-Id
+                        variable: message.headers.consumerId
                       documentId:
                         schema:
                           type: string
@@ -1866,6 +2051,13 @@ x-ibm-configuration:
                         https://www.ibm.com/support/knowledgecenter/SSMNED_v10/com.ibm.apic.porting.doc/porting_messages.html#MAP_RESOLVE_VARS_SET_EXPLICIT_TRUE
                     options:
                       mapResolveApicVariables: true
+                - set-variable:
+                    version: 2.0.0
+                    title: set-rPath
+                    actions:
+                      - set: message.headers.rPath
+                        value: $(TARGET_INTRANET)
+                        type: string
                 - invoke:
                     cache-key: ''
                     cache-response: no-cache
@@ -1873,7 +2065,7 @@ x-ibm-configuration:
                     description: Créditos por convenio
                     stop-on-error:
                       - ConnectionError
-                    target-url: $(url-dest-agreements)
+                    target-url: $(TARGET_INTRANET)
                     timeout: 10
                     title: 'invoke:LicConvenios'
                     verb: POST
@@ -1906,11 +2098,11 @@ x-ibm-configuration:
                     source: >+
                       var apim=require('apim');
 
-                      const gsPolicyMod = require('policy/policy-utility.js');
+                      //const gsPolicyMod = require('policy/policy-utility.js');
 
                       const transform = require('transform');
 
-                      const mon = require('local:///js/ValidationStatus.js');
+                      //const mon = require('local:///js/ValidationStatus.js');
 
                       const HTTP_CODE_200_OK =200;
 
@@ -1927,6 +2119,9 @@ x-ibm-configuration:
                       let resBodyProvider = apim.getvariable('message.body');
 
                       let messageIdRes = apim.getvariable('INTMessageIdRes');
+
+
+                      context.set('message.headers.skip',false);
                        
                       if(httpCodeProvider == HTTP_CODE_200_OK){
                            let options = {
@@ -1934,6 +2129,8 @@ x-ibm-configuration:
                               'xmldom': resBodyProvider,
                               'namespace': { 'ns1': 'http://WebS_LIC_CClientes/' }
                           }; 
+                          
+                          
                           
                           transform.xpath(options, function(error, xml) {
                               if(error) {
@@ -1958,6 +2155,7 @@ x-ibm-configuration:
                            apim.setvariable('message.headers.X-INT-MessageId-Res', messageIdRes);
                            generateMessageError(HTTP_CODE_500,HTTP_MESSAGE_500);
                           
+                          context.set('message.headers.skip',true);
                           
                       }
 
@@ -1968,7 +2166,8 @@ x-ibm-configuration:
                               apim.setvariable('message.status.reason', httpMessage);
                               apim.setvariable('message.body', '{"httpCode":"'+httpCode+'","httpMessage":"'+httpMessage+'"}');
                               apim.output('application/json');
-                              gsPolicyMod.SetNextStep('_SKIP_ALL_');
+                             
+                              //gsPolicyMod.SetNextStep('_SKIP_ALL_');
                       }
 
 
@@ -1984,255 +2183,264 @@ x-ibm-configuration:
                         `gatewayscript` policy to conform to the API Gateway
                         specification. For details, see:
                         https://www.ibm.com/support/knowledgecenter/SSMNED_v10/com.ibm.apic.porting.doc/porting_messages.html#GWS_PREPEND_REQUIRE_APIM
-                - map:
-                    actions:
-                      - from: >-
-                          input.Envelope.Body.IdentificarCliente_DtsToXMLResponse.IdentificarCliente_DtsToXMLResult.CuerpoDatos.Cabecera.CodUnico
-                        set: response.customer.id
-                      - from: >-
-                          input.Envelope.Body.IdentificarCliente_DtsToXMLResponse.IdentificarCliente_DtsToXMLResult.CuerpoDatos.Cabecera.PrimerNombre
-                        set: response.customer.firstName
-                      - from: >-
-                          input.Envelope.Body.IdentificarCliente_DtsToXMLResponse.IdentificarCliente_DtsToXMLResult.CuerpoDatos.Cabecera.SegundoNombre
-                        set: response.customer.secondName
-                      - from: >-
-                          input.Envelope.Body.IdentificarCliente_DtsToXMLResponse.IdentificarCliente_DtsToXMLResult.CuerpoDatos.Cabecera.ApellidoPaterno
-                        set: response.customer.lastName
-                      - from: >-
-                          input.Envelope.Body.IdentificarCliente_DtsToXMLResponse.IdentificarCliente_DtsToXMLResult.CuerpoDatos.Cabecera.ApellidoMaterno
-                        set: response.customer.secondLastName
-                      - from: >-
-                          input.Envelope.Body.IdentificarCliente_DtsToXMLResponse.IdentificarCliente_DtsToXMLResult.CuerpoDatos.Cabecera.TipoDocumento
-                        set: response.customer.identityDocument.type
-                      - from: >-
-                          input.Envelope.Body.IdentificarCliente_DtsToXMLResponse.IdentificarCliente_DtsToXMLResult.CuerpoDatos.Cabecera.NroDocumento
-                        set: response.customer.identityDocument.id
-                      - actions:
-                          - from: NumeroCredito
-                            set: id
-                          - from: CUEmpresa
-                            set: companyId
-                          - from: NombreConvenio
-                            set: agreementName
-                          - from: MonedaCredito
-                            set: disbursement.currencyName
-                          - from: SeguroDesgravamen
-                            set: disbursement.insuranceDesgravamen
-                          - from: TEA
-                            set: disbursement.tea
-                          - from: TCEA
-                            set: disbursement.tcea
-                          - from: FechaUltDesembolso
-                            set: disbursement.date
-                          - from: MontoDesembolsado
-                            set: disbursement.amount
-                          - from: SaldoCapital
-                            set: disbursement.capitalBalance
-                          - from: MontoCapPagado
-                            set: disbursement.paidCapitalAmount
-                          - from: NroCuotasPagadas
-                            set: installment.paid
-                          - from: NumeroCuotasPendiente
-                            set: installment.pending
-                          - from: TotalCuotas
-                            set: installment.total
-                          - from: MontoCuota
-                            set: installment.amount
-                          - from: UltFechaVencimiento
-                            set: installment.dueDate
-                          - from: FechaVencimiento
-                            set: installment.nextDueDate
-                        create: response.credits
-                        foreach: >-
-                          input.Envelope.Body.IdentificarCliente_DtsToXMLResponse.IdentificarCliente_DtsToXMLResult.CuerpoDatos.Cabecera.Detalle
-                        from: >-
-                          input.Envelope.Body.IdentificarCliente_DtsToXMLResponse.IdentificarCliente_DtsToXMLResult.CuerpoDatos.Cabecera.Detalle
-                    inputs:
-                      input:
-                        content: application/xml
-                        schema:
-                          description: ''
-                          example: "<soap:Envelope xmlns:soap=\"http://schemas.xmlsoap.org/soap/envelope/\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\">\r\n   <soap:Body>\r\n      <IdentificarCliente_DtsToXMLResponse xmlns=\"http://WebS_LIC_CClientes/\">\r\n         <IdentificarCliente_DtsToXMLResult>\r\n            <CuerpoDatos xmlns=\"\">\r\n               <Respuesta>\r\n                  <codError>0000</codError>\r\n                  <dscError>Todo Ok</dscError>\r\n               </Respuesta>\r\n               <Cabecera>\r\n                  <TipoDocumento>1</TipoDocumento>\r\n                  <NroDocumento>29633301</NroDocumento>\r\n                  <CodUnico>0050046308</CodUnico>\r\n                  <ApellidoPaterno>HILACHOQUE</ApellidoPaterno>\r\n                  <ApellidoMaterno>TORRES</ApellidoMaterno>\r\n                  <PrimerNombre>LOBYER</PrimerNombre>\r\n                  <SegundoNombre>DOMINGO</SegundoNombre>\r\n                  <Detalle>\r\n                     <CUEmpresa>0050045852</CUEmpresa>\r\n                     <NombreConvenio>COOPERATIVA TRABAJADORES ALICORP</NombreConvenio>\r\n                     <NumeroCredito>00016866</NumeroCredito>\r\n                     <FechaUltDesembolso>26/10/2010</FechaUltDesembolso>\r\n                     <SaldoCapital>24800.00</SaldoCapital>\r\n                     <MontoDesembolsado>18115.22</MontoDesembolsado>\r\n                     <MonedaCredito>SOLES</MonedaCredito>\r\n                     <FechaVencimiento>17/11/2015</FechaVencimiento>\r\n                     <MontoCuota>603.05</MontoCuota>\r\n                     <MontoCapPagado>0.00</MontoCapPagado>\r\n                     <NroCuotasPagadas>21</NroCuotasPagadas>\r\n                     <NumeroCuotasPendiente>39</NumeroCuotasPendiente>\r\n                     <TotalCuotas>60</TotalCuotas>\r\n                     <SeguroDesgravamen>0.08</SeguroDesgravamen>\r\n                     <TEA>15.9999</TEA>\r\n                     <TCEA>17.9603</TCEA>\r\n                     <UltFechaVencimiento>17/11/2015</UltFechaVencimiento>\r\n                  </Detalle>\r\n                  <Detalle>\r\n                     <CUEmpresa>0050045852</CUEmpresa>\r\n                     <NombreConvenio>COOPERATIVA TRABAJADORES ALICORP</NombreConvenio>\r\n                     <NumeroCredito>00017408</NumeroCredito>\r\n                     <FechaUltDesembolso>Sin Fecha</FechaUltDesembolso>\r\n                     <SaldoCapital>0.00</SaldoCapital>\r\n                     <MontoDesembolsado>0.00</MontoDesembolsado>\r\n                     <MonedaCredito>SOLES</MonedaCredito>\r\n                     <FechaVencimiento>SinDesembolso</FechaVencimiento>\r\n                     <MontoCuota>0.00</MontoCuota>\r\n                     <MontoCapPagado>0.00</MontoCapPagado>\r\n                     <NroCuotasPagadas>0</NroCuotasPagadas>\r\n                     <NumeroCuotasPendiente>0</NumeroCuotasPendiente>\r\n                     <TotalCuotas>0</TotalCuotas>\r\n                     <SeguroDesgravamen>0.08</SeguroDesgravamen>\r\n                     <TEA>15.9999</TEA>\r\n                     <TCEA>0.0000</TCEA>\r\n                     <UltFechaVencimiento>Sin Fecha</UltFechaVencimiento>\r\n                  </Detalle>\r\n                  <Detalle>\r\n                     <CUEmpresa>0050045852</CUEmpresa>\r\n                     <NombreConvenio>COOPERATIVA TRABAJADORES ALICORP</NombreConvenio>\r\n                     <NumeroCredito>00017603</NumeroCredito>\r\n                     <FechaUltDesembolso>Sin Fecha</FechaUltDesembolso>\r\n                     <SaldoCapital>0.00</SaldoCapital>\r\n                     <MontoDesembolsado>0.00</MontoDesembolsado>\r\n                     <MonedaCredito>SOLES</MonedaCredito>\r\n                     <FechaVencimiento>SinDesembolso</FechaVencimiento>\r\n                     <MontoCuota>0.00</MontoCuota>\r\n                     <MontoCapPagado>0.00</MontoCapPagado>\r\n                     <NroCuotasPagadas>0</NroCuotasPagadas>\r\n                     <NumeroCuotasPendiente>0</NumeroCuotasPendiente>\r\n                     <TotalCuotas>0</TotalCuotas>\r\n                     <SeguroDesgravamen>0.08</SeguroDesgravamen>\r\n                     <TEA>15.9999</TEA>\r\n                     <TCEA>0.0000</TCEA>\r\n                     <UltFechaVencimiento>Sin Fecha</UltFechaVencimiento>\r\n                  </Detalle>\r\n                  <Detalle>\r\n                     <CUEmpresa>0050045852</CUEmpresa>\r\n                     <NombreConvenio>COOPERATIVA TRABAJADORES ALICORP</NombreConvenio>\r\n                     <NumeroCredito>00017798</NumeroCredito>\r\n                     <FechaUltDesembolso>Sin Fecha</FechaUltDesembolso>\r\n                     <SaldoCapital>0.00</SaldoCapital>\r\n                     <MontoDesembolsado>0.00</MontoDesembolsado>\r\n                     <MonedaCredito>SOLES</MonedaCredito>\r\n                     <FechaVencimiento>SinDesembolso</FechaVencimiento>\r\n                     <MontoCuota>0.00</MontoCuota>\r\n                     <MontoCapPagado>0.00</MontoCapPagado>\r\n                     <NroCuotasPagadas>0</NroCuotasPagadas>\r\n                     <NumeroCuotasPendiente>0</NumeroCuotasPendiente>\r\n                     <TotalCuotas>0</TotalCuotas>\r\n                     <SeguroDesgravamen>0.08</SeguroDesgravamen>\r\n                     <TEA>15.9999</TEA>\r\n                     <TCEA>0.0000</TCEA>\r\n                     <UltFechaVencimiento>Sin Fecha</UltFechaVencimiento>\r\n                  </Detalle>\r\n               </Cabecera>\r\n            </CuerpoDatos>\r\n         </IdentificarCliente_DtsToXMLResult>\r\n      </IdentificarCliente_DtsToXMLResponse>\r\n   </soap:Body>\r\n</soap:Envelope>"
-                          properties:
-                            Envelope:
-                              properties:
-                                Body:
-                                  properties:
-                                    IdentificarCliente_DtsToXMLResponse:
-                                      properties:
-                                        IdentificarCliente_DtsToXMLResult:
-                                          properties:
-                                            CuerpoDatos:
-                                              properties:
-                                                Cabecera:
-                                                  properties:
-                                                    ApellidoMaterno:
-                                                      type: string
-                                                      xml:
-                                                        namespace: ''
-                                                    ApellidoPaterno:
-                                                      type: string
-                                                      xml:
-                                                        namespace: ''
-                                                    CodUnico:
-                                                      type: string
-                                                      xml:
-                                                        namespace: ''
-                                                    Detalle:
-                                                      items:
+                - switch:
+                    version: 2.0.0
+                    title: switch
+                    case:
+                      - condition: $header("skip") = false
+                        execute:
+                          - map:
+                              actions:
+                                - from: >-
+                                    input.Envelope.Body.IdentificarCliente_DtsToXMLResponse.IdentificarCliente_DtsToXMLResult.CuerpoDatos.Cabecera.CodUnico
+                                  set: response.customer.id
+                                - from: >-
+                                    input.Envelope.Body.IdentificarCliente_DtsToXMLResponse.IdentificarCliente_DtsToXMLResult.CuerpoDatos.Cabecera.PrimerNombre
+                                  set: response.customer.firstName
+                                - from: >-
+                                    input.Envelope.Body.IdentificarCliente_DtsToXMLResponse.IdentificarCliente_DtsToXMLResult.CuerpoDatos.Cabecera.SegundoNombre
+                                  set: response.customer.secondName
+                                - from: >-
+                                    input.Envelope.Body.IdentificarCliente_DtsToXMLResponse.IdentificarCliente_DtsToXMLResult.CuerpoDatos.Cabecera.ApellidoPaterno
+                                  set: response.customer.lastName
+                                - from: >-
+                                    input.Envelope.Body.IdentificarCliente_DtsToXMLResponse.IdentificarCliente_DtsToXMLResult.CuerpoDatos.Cabecera.ApellidoMaterno
+                                  set: response.customer.secondLastName
+                                - from: >-
+                                    input.Envelope.Body.IdentificarCliente_DtsToXMLResponse.IdentificarCliente_DtsToXMLResult.CuerpoDatos.Cabecera.TipoDocumento
+                                  set: response.customer.identityDocument.type
+                                - from: >-
+                                    input.Envelope.Body.IdentificarCliente_DtsToXMLResponse.IdentificarCliente_DtsToXMLResult.CuerpoDatos.Cabecera.NroDocumento
+                                  set: response.customer.identityDocument.id
+                                - actions:
+                                    - from: NumeroCredito
+                                      set: id
+                                    - from: CUEmpresa
+                                      set: companyId
+                                    - from: NombreConvenio
+                                      set: agreementName
+                                    - from: MonedaCredito
+                                      set: disbursement.currencyName
+                                    - from: SeguroDesgravamen
+                                      set: disbursement.insuranceDesgravamen
+                                    - from: TEA
+                                      set: disbursement.tea
+                                    - from: TCEA
+                                      set: disbursement.tcea
+                                    - from: FechaUltDesembolso
+                                      set: disbursement.date
+                                    - from: MontoDesembolsado
+                                      set: disbursement.amount
+                                    - from: SaldoCapital
+                                      set: disbursement.capitalBalance
+                                    - from: MontoCapPagado
+                                      set: disbursement.paidCapitalAmount
+                                    - from: NroCuotasPagadas
+                                      set: installment.paid
+                                    - from: NumeroCuotasPendiente
+                                      set: installment.pending
+                                    - from: TotalCuotas
+                                      set: installment.total
+                                    - from: MontoCuota
+                                      set: installment.amount
+                                    - from: UltFechaVencimiento
+                                      set: installment.dueDate
+                                    - from: FechaVencimiento
+                                      set: installment.nextDueDate
+                                  create: response.credits
+                                  foreach: >-
+                                    input.Envelope.Body.IdentificarCliente_DtsToXMLResponse.IdentificarCliente_DtsToXMLResult.CuerpoDatos.Cabecera.Detalle
+                                  from: >-
+                                    input.Envelope.Body.IdentificarCliente_DtsToXMLResponse.IdentificarCliente_DtsToXMLResult.CuerpoDatos.Cabecera.Detalle
+                              inputs:
+                                input:
+                                  content: application/xml
+                                  schema:
+                                    description: ''
+                                    example: "<soap:Envelope xmlns:soap=\"http://schemas.xmlsoap.org/soap/envelope/\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\">\r\n   <soap:Body>\r\n      <IdentificarCliente_DtsToXMLResponse xmlns=\"http://WebS_LIC_CClientes/\">\r\n         <IdentificarCliente_DtsToXMLResult>\r\n            <CuerpoDatos xmlns=\"\">\r\n               <Respuesta>\r\n                  <codError>0000</codError>\r\n                  <dscError>Todo Ok</dscError>\r\n               </Respuesta>\r\n               <Cabecera>\r\n                  <TipoDocumento>1</TipoDocumento>\r\n                  <NroDocumento>29633301</NroDocumento>\r\n                  <CodUnico>0050046308</CodUnico>\r\n                  <ApellidoPaterno>HILACHOQUE</ApellidoPaterno>\r\n                  <ApellidoMaterno>TORRES</ApellidoMaterno>\r\n                  <PrimerNombre>LOBYER</PrimerNombre>\r\n                  <SegundoNombre>DOMINGO</SegundoNombre>\r\n                  <Detalle>\r\n                     <CUEmpresa>0050045852</CUEmpresa>\r\n                     <NombreConvenio>COOPERATIVA TRABAJADORES ALICORP</NombreConvenio>\r\n                     <NumeroCredito>00016866</NumeroCredito>\r\n                     <FechaUltDesembolso>26/10/2010</FechaUltDesembolso>\r\n                     <SaldoCapital>24800.00</SaldoCapital>\r\n                     <MontoDesembolsado>18115.22</MontoDesembolsado>\r\n                     <MonedaCredito>SOLES</MonedaCredito>\r\n                     <FechaVencimiento>17/11/2015</FechaVencimiento>\r\n                     <MontoCuota>603.05</MontoCuota>\r\n                     <MontoCapPagado>0.00</MontoCapPagado>\r\n                     <NroCuotasPagadas>21</NroCuotasPagadas>\r\n                     <NumeroCuotasPendiente>39</NumeroCuotasPendiente>\r\n                     <TotalCuotas>60</TotalCuotas>\r\n                     <SeguroDesgravamen>0.08</SeguroDesgravamen>\r\n                     <TEA>15.9999</TEA>\r\n                     <TCEA>17.9603</TCEA>\r\n                     <UltFechaVencimiento>17/11/2015</UltFechaVencimiento>\r\n                  </Detalle>\r\n                  <Detalle>\r\n                     <CUEmpresa>0050045852</CUEmpresa>\r\n                     <NombreConvenio>COOPERATIVA TRABAJADORES ALICORP</NombreConvenio>\r\n                     <NumeroCredito>00017408</NumeroCredito>\r\n                     <FechaUltDesembolso>Sin Fecha</FechaUltDesembolso>\r\n                     <SaldoCapital>0.00</SaldoCapital>\r\n                     <MontoDesembolsado>0.00</MontoDesembolsado>\r\n                     <MonedaCredito>SOLES</MonedaCredito>\r\n                     <FechaVencimiento>SinDesembolso</FechaVencimiento>\r\n                     <MontoCuota>0.00</MontoCuota>\r\n                     <MontoCapPagado>0.00</MontoCapPagado>\r\n                     <NroCuotasPagadas>0</NroCuotasPagadas>\r\n                     <NumeroCuotasPendiente>0</NumeroCuotasPendiente>\r\n                     <TotalCuotas>0</TotalCuotas>\r\n                     <SeguroDesgravamen>0.08</SeguroDesgravamen>\r\n                     <TEA>15.9999</TEA>\r\n                     <TCEA>0.0000</TCEA>\r\n                     <UltFechaVencimiento>Sin Fecha</UltFechaVencimiento>\r\n                  </Detalle>\r\n                  <Detalle>\r\n                     <CUEmpresa>0050045852</CUEmpresa>\r\n                     <NombreConvenio>COOPERATIVA TRABAJADORES ALICORP</NombreConvenio>\r\n                     <NumeroCredito>00017603</NumeroCredito>\r\n                     <FechaUltDesembolso>Sin Fecha</FechaUltDesembolso>\r\n                     <SaldoCapital>0.00</SaldoCapital>\r\n                     <MontoDesembolsado>0.00</MontoDesembolsado>\r\n                     <MonedaCredito>SOLES</MonedaCredito>\r\n                     <FechaVencimiento>SinDesembolso</FechaVencimiento>\r\n                     <MontoCuota>0.00</MontoCuota>\r\n                     <MontoCapPagado>0.00</MontoCapPagado>\r\n                     <NroCuotasPagadas>0</NroCuotasPagadas>\r\n                     <NumeroCuotasPendiente>0</NumeroCuotasPendiente>\r\n                     <TotalCuotas>0</TotalCuotas>\r\n                     <SeguroDesgravamen>0.08</SeguroDesgravamen>\r\n                     <TEA>15.9999</TEA>\r\n                     <TCEA>0.0000</TCEA>\r\n                     <UltFechaVencimiento>Sin Fecha</UltFechaVencimiento>\r\n                  </Detalle>\r\n                  <Detalle>\r\n                     <CUEmpresa>0050045852</CUEmpresa>\r\n                     <NombreConvenio>COOPERATIVA TRABAJADORES ALICORP</NombreConvenio>\r\n                     <NumeroCredito>00017798</NumeroCredito>\r\n                     <FechaUltDesembolso>Sin Fecha</FechaUltDesembolso>\r\n                     <SaldoCapital>0.00</SaldoCapital>\r\n                     <MontoDesembolsado>0.00</MontoDesembolsado>\r\n                     <MonedaCredito>SOLES</MonedaCredito>\r\n                     <FechaVencimiento>SinDesembolso</FechaVencimiento>\r\n                     <MontoCuota>0.00</MontoCuota>\r\n                     <MontoCapPagado>0.00</MontoCapPagado>\r\n                     <NroCuotasPagadas>0</NroCuotasPagadas>\r\n                     <NumeroCuotasPendiente>0</NumeroCuotasPendiente>\r\n                     <TotalCuotas>0</TotalCuotas>\r\n                     <SeguroDesgravamen>0.08</SeguroDesgravamen>\r\n                     <TEA>15.9999</TEA>\r\n                     <TCEA>0.0000</TCEA>\r\n                     <UltFechaVencimiento>Sin Fecha</UltFechaVencimiento>\r\n                  </Detalle>\r\n               </Cabecera>\r\n            </CuerpoDatos>\r\n         </IdentificarCliente_DtsToXMLResult>\r\n      </IdentificarCliente_DtsToXMLResponse>\r\n   </soap:Body>\r\n</soap:Envelope>"
+                                    properties:
+                                      Envelope:
+                                        properties:
+                                          Body:
+                                            properties:
+                                              IdentificarCliente_DtsToXMLResponse:
+                                                properties:
+                                                  IdentificarCliente_DtsToXMLResult:
+                                                    properties:
+                                                      CuerpoDatos:
                                                         properties:
-                                                          CUEmpresa:
-                                                            type: string
+                                                          Cabecera:
+                                                            properties:
+                                                              ApellidoMaterno:
+                                                                type: string
+                                                                xml:
+                                                                  namespace: ''
+                                                              ApellidoPaterno:
+                                                                type: string
+                                                                xml:
+                                                                  namespace: ''
+                                                              CodUnico:
+                                                                type: string
+                                                                xml:
+                                                                  namespace: ''
+                                                              Detalle:
+                                                                items:
+                                                                  properties:
+                                                                    CUEmpresa:
+                                                                      type: string
+                                                                      xml:
+                                                                        namespace: ''
+                                                                    FechaUltDesembolso:
+                                                                      type: string
+                                                                      xml:
+                                                                        namespace: ''
+                                                                    FechaVencimiento:
+                                                                      type: string
+                                                                      xml:
+                                                                        namespace: ''
+                                                                    MonedaCredito:
+                                                                      type: string
+                                                                      xml:
+                                                                        namespace: ''
+                                                                    MontoCapPagado:
+                                                                      type: string
+                                                                      xml:
+                                                                        namespace: ''
+                                                                    MontoCuota:
+                                                                      type: string
+                                                                      xml:
+                                                                        namespace: ''
+                                                                    MontoDesembolsado:
+                                                                      type: string
+                                                                      xml:
+                                                                        namespace: ''
+                                                                    NombreConvenio:
+                                                                      type: string
+                                                                      xml:
+                                                                        namespace: ''
+                                                                    NroCuotasPagadas:
+                                                                      type: string
+                                                                      xml:
+                                                                        namespace: ''
+                                                                    NumeroCredito:
+                                                                      type: string
+                                                                      xml:
+                                                                        namespace: ''
+                                                                    NumeroCuotasPendiente:
+                                                                      type: string
+                                                                      xml:
+                                                                        namespace: ''
+                                                                    SaldoCapital:
+                                                                      type: string
+                                                                      xml:
+                                                                        namespace: ''
+                                                                    SeguroDesgravamen:
+                                                                      type: string
+                                                                      xml:
+                                                                        namespace: ''
+                                                                    TCEA:
+                                                                      type: string
+                                                                      xml:
+                                                                        namespace: ''
+                                                                    TEA:
+                                                                      type: string
+                                                                      xml:
+                                                                        namespace: ''
+                                                                    TotalCuotas:
+                                                                      type: string
+                                                                      xml:
+                                                                        namespace: ''
+                                                                    UltFechaVencimiento:
+                                                                      type: string
+                                                                      xml:
+                                                                        namespace: ''
+                                                                  type: object
+                                                                  xml:
+                                                                    namespace: ''
+                                                                type: array
+                                                              NroDocumento:
+                                                                type: string
+                                                                xml:
+                                                                  namespace: ''
+                                                              PrimerNombre:
+                                                                type: string
+                                                                xml:
+                                                                  namespace: ''
+                                                              SegundoNombre:
+                                                                type: string
+                                                                xml:
+                                                                  namespace: ''
+                                                              TipoDocumento:
+                                                                type: string
+                                                                xml:
+                                                                  namespace: ''
+                                                            type: object
                                                             xml:
                                                               namespace: ''
-                                                          FechaUltDesembolso:
-                                                            type: string
-                                                            xml:
-                                                              namespace: ''
-                                                          FechaVencimiento:
-                                                            type: string
-                                                            xml:
-                                                              namespace: ''
-                                                          MonedaCredito:
-                                                            type: string
-                                                            xml:
-                                                              namespace: ''
-                                                          MontoCapPagado:
-                                                            type: string
-                                                            xml:
-                                                              namespace: ''
-                                                          MontoCuota:
-                                                            type: string
-                                                            xml:
-                                                              namespace: ''
-                                                          MontoDesembolsado:
-                                                            type: string
-                                                            xml:
-                                                              namespace: ''
-                                                          NombreConvenio:
-                                                            type: string
-                                                            xml:
-                                                              namespace: ''
-                                                          NroCuotasPagadas:
-                                                            type: string
-                                                            xml:
-                                                              namespace: ''
-                                                          NumeroCredito:
-                                                            type: string
-                                                            xml:
-                                                              namespace: ''
-                                                          NumeroCuotasPendiente:
-                                                            type: string
-                                                            xml:
-                                                              namespace: ''
-                                                          SaldoCapital:
-                                                            type: string
-                                                            xml:
-                                                              namespace: ''
-                                                          SeguroDesgravamen:
-                                                            type: string
-                                                            xml:
-                                                              namespace: ''
-                                                          TCEA:
-                                                            type: string
-                                                            xml:
-                                                              namespace: ''
-                                                          TEA:
-                                                            type: string
-                                                            xml:
-                                                              namespace: ''
-                                                          TotalCuotas:
-                                                            type: string
-                                                            xml:
-                                                              namespace: ''
-                                                          UltFechaVencimiento:
-                                                            type: string
+                                                          Respuesta:
+                                                            properties:
+                                                              codError:
+                                                                type: string
+                                                                xml:
+                                                                  namespace: ''
+                                                              dscError:
+                                                                type: string
+                                                                xml:
+                                                                  namespace: ''
+                                                            type: object
                                                             xml:
                                                               namespace: ''
                                                         type: object
                                                         xml:
                                                           namespace: ''
-                                                      type: array
-                                                    NroDocumento:
-                                                      type: string
-                                                      xml:
-                                                        namespace: ''
-                                                    PrimerNombre:
-                                                      type: string
-                                                      xml:
-                                                        namespace: ''
-                                                    SegundoNombre:
-                                                      type: string
-                                                      xml:
-                                                        namespace: ''
-                                                    TipoDocumento:
-                                                      type: string
-                                                      xml:
-                                                        namespace: ''
-                                                  type: object
-                                                  xml:
-                                                    namespace: ''
-                                                Respuesta:
-                                                  properties:
-                                                    codError:
-                                                      type: string
-                                                      xml:
-                                                        namespace: ''
-                                                    dscError:
-                                                      type: string
-                                                      xml:
-                                                        namespace: ''
-                                                  type: object
-                                                  xml:
-                                                    namespace: ''
-                                              type: object
-                                              xml:
-                                                namespace: ''
-                                          type: object
-                                          xml:
-                                            namespace: ''
-                                      type: object
-                                      xml:
-                                        namespace: 'http://WebS_LIC_CClientes/'
-                                  type: object
-                              type: object
-                              xml:
-                                namespace: 'http://schemas.xmlsoap.org/soap/envelope/'
-                                prefix: soap
-                          type: object
-                          xml:
-                            namespace: ''
-                        variable: message.body
-                    outputs:
-                      response:
-                        schema:
-                          $ref: '#/definitions/Resp-Credit-Agreements'
-                        variable: message.body
-                    title: map
-                    version: 2.0.0
-                    comment:
-                      - >-
-                        MAP03: Converted `map` to API Gateway `map` for
-                        conformance.
-                      - >-
-                        API28: Moved `x-ibm-gateway-map-resolve-apic-variables`
-                        from API properties to this policy option
-                        `mapResolveApicVariables` and set to [true]. For
-                        details, see:
-                        https://www.ibm.com/support/knowledgecenter/SSMNED_v10/com.ibm.apic.porting.doc/porting_messages.html#MOVED_API_PROP_TO_POLICY_OPTION
-                      - >-
-                        MAP04: Set `map` option of mapResolveApicVariables to
-                        previous default of `true` for compatability. For
-                        details, see:
-                        https://www.ibm.com/support/knowledgecenter/SSMNED_v10/com.ibm.apic.porting.doc/porting_messages.html#MAP_RESOLVE_VARS_SET_EXPLICIT_TRUE
-                    options:
-                      mapResolveApicVariables: true
+                                                    type: object
+                                                    xml:
+                                                      namespace: ''
+                                                type: object
+                                                xml:
+                                                  namespace: 'http://WebS_LIC_CClientes/'
+                                            type: object
+                                        type: object
+                                        xml:
+                                          namespace: >-
+                                            http://schemas.xmlsoap.org/soap/envelope/
+                                          prefix: soap
+                                    type: object
+                                    xml:
+                                      namespace: ''
+                                  variable: message.body
+                              outputs:
+                                response:
+                                  schema:
+                                    $ref: '#/definitions/Resp-Credit-Agreements'
+                                  variable: message.body
+                              title: map
+                              version: 2.0.0
+                              comment:
+                                - >-
+                                  MAP03: Converted `map` to API Gateway `map`
+                                  for conformance.
+                                - >-
+                                  API28: Moved
+                                  `x-ibm-gateway-map-resolve-apic-variables`
+                                  from API properties to this policy option
+                                  `mapResolveApicVariables` and set to [true].
+                                  For details, see:
+                                  https://www.ibm.com/support/knowledgecenter/SSMNED_v10/com.ibm.apic.porting.doc/porting_messages.html#MOVED_API_PROP_TO_POLICY_OPTION
+                                - >-
+                                  MAP04: Set `map` option of
+                                  mapResolveApicVariables to previous default of
+                                  `true` for compatability. For details, see:
+                                  https://www.ibm.com/support/knowledgecenter/SSMNED_v10/com.ibm.apic.porting.doc/porting_messages.html#MAP_RESOLVE_VARS_SET_EXPLICIT_TRUE
+                              options:
+                                mapResolveApicVariables: true
+                      - otherwise: []
             - condition: >-
                 ($httpVerb() = "GET" and $operationPath() =
                 "/personal/customerId/{customerId}")
               execute:
                 - gatewayscript:
-                    source: "var apim=require('apim');\nvar messageIdX = apim.getvariable('message.headers.X-Global-Transaction-ID');\r\napim.setvariable('INTMessageIdRes', messageIdX);\r\n\r\nconst GROUP_ID        = \"3\";\r\napim.setvariable('groupId', GROUP_ID);\r\n\r\n\r\n\r\n\r\n// Remove variables message.\r\napim.setvariable('message.headers.X-INT-Consumer-Id',' ','clear');\r\napim.setvariable('message.headers.X-INT-Timestamp',' ','clear');\r\napim.setvariable('message.headers.X-INT-Message-Id',' ','clear');"
+                    source: "var apim=require('apim');\nvar messageIdX = apim.getvariable('message.headers.X-Global-Transaction-ID');\r\napim.setvariable('INTMessageIdRes', messageIdX);\r\n\r\nconst GROUP_ID        = \"3\";\r\napim.setvariable('groupId', GROUP_ID);\r\n\r\n\r\n\r\n\r\n// Remove variables message.\r\napim.setvariable('message.headers.consumerId',' ','clear');\r\napim.setvariable('message.headers.timeStamp',' ','clear');\r\napim.setvariable('message.headers.messageId',' ','clear');"
                     title: gatewayscript
                     version: 2.0.0
                     comment:
@@ -2329,12 +2537,19 @@ x-ibm-configuration:
                         https://www.ibm.com/support/knowledgecenter/SSMNED_v10/com.ibm.apic.porting.doc/porting_messages.html#MAP_RESOLVE_VARS_SET_EXPLICIT_TRUE
                     options:
                       mapResolveApicVariables: true
+                - set-variable:
+                    version: 2.0.0
+                    title: set-rPath
+                    actions:
+                      - set: message.headers.rPath
+                        value: $(TARGET_INTRANET)
+                        type: string
                 - invoke:
                     cache-response: no-cache
                     cache-ttl: 900
                     stop-on-error:
                       - ConnectionError
-                    target-url: $(url_dest_hpc)
+                    target-url: $(TARGET_INTRANET)
                     timeout: 60
                     title: 'invoke:HpcObtenerCreditos'
                     verb: POST
@@ -2367,11 +2582,11 @@ x-ibm-configuration:
                     source: >
                       var apim=require('apim');
 
-                      const gsPolicyMod = require('policy/policy-utility.js');
+                      //const gsPolicyMod = require('policy/policy-utility.js');
 
                       const transform = require('transform');
 
-                      const mon = require('local:///js/ValidationStatus.js');
+                      //const mon = require('local:///js/ValidationStatus.js');
 
                       const HTTP_CODE_200_OK =200;
 
@@ -2388,6 +2603,9 @@ x-ibm-configuration:
                       let resBodyProvider = apim.getvariable('message.body');
 
                       let messageIdRes = apim.getvariable('INTMessageIdRes');
+
+
+                      context.set('message.headers.skip',false);
                        
                       if(httpCodeProvider == HTTP_CODE_200_OK){
                            let options = {
@@ -2419,7 +2637,7 @@ x-ibm-configuration:
                            apim.setvariable('message.headers.X-INT-MessageId-Res', messageIdRes);
                            generateMessageError(HTTP_CODE_500,HTTP_MESSAGE_500);
                           
-                          
+                          context.set('message.headers.skip',true);
                       }
 
 
@@ -2429,7 +2647,7 @@ x-ibm-configuration:
                               apim.setvariable('message.status.reason', httpMessage);
                               apim.setvariable('message.body', '{"httpCode":"'+httpCode+'","httpMessage":"'+httpMessage+'"}');
                               apim.output('application/json');
-                              gsPolicyMod.SetNextStep('_SKIP_ALL_');
+                              //gsPolicyMod.SetNextStep('_SKIP_ALL_');
                       }
                     title: gatewayscript
                     version: 2.0.0
@@ -2443,6 +2661,13 @@ x-ibm-configuration:
                         `gatewayscript` policy to conform to the API Gateway
                         specification. For details, see:
                         https://www.ibm.com/support/knowledgecenter/SSMNED_v10/com.ibm.apic.porting.doc/porting_messages.html#GWS_PREPEND_REQUIRE_APIM
+                - switch:
+                    version: 2.0.0
+                    title: switch
+                    case:
+                      - condition: $header("skip") = false
+                        execute: []
+                      - otherwise: []
                 - map:
                     actions:
                       - actions:
@@ -2629,14 +2854,12 @@ x-ibm-configuration:
 
                       // Remove variables message.
 
-                      apim.setvariable('message.headers.X-INT-Consumer-Id','
+                      apim.setvariable('message.headers.consumerId','
                       ','clear');
 
-                      apim.setvariable('message.headers.X-INT-Timestamp','
-                      ','clear');
+                      apim.setvariable('message.headers.timeStamp',' ','clear');
 
-                      apim.setvariable('message.headers.X-INT-Message-Id','
-                      ','clear');
+                      apim.setvariable('message.headers.messageId',' ','clear');
 
 
                       var messageIdX =
@@ -2741,18 +2964,18 @@ x-ibm-configuration:
                         schema:
                           $ref: '#/definitions/TramaRq_desembolso_post'
                         variable: request.body
-                      X-INT-Consumer-Id:
+                      consumerId:
                         schema:
                           type: string
-                        variable: request.headers.X-INT-Consumer-Id
-                      X-INT-Message-Id:
+                        variable: request.headers.consumerId
+                      messageId:
                         schema:
                           type: string
-                        variable: request.headers.X-INT-Message-Id
-                      X-INT-Timestamp:
+                        variable: request.headers.messageId
+                      timeStamp:
                         schema:
                           type: string
-                        variable: request.headers.X-INT-Timestamp
+                        variable: request.headers.timeStamp
                       loanId:
                         schema:
                           type: string
@@ -2791,6 +3014,13 @@ x-ibm-configuration:
                         https://www.ibm.com/support/knowledgecenter/SSMNED_v10/com.ibm.apic.porting.doc/porting_messages.html#MAP_RESOLVE_VARS_SET_EXPLICIT_TRUE
                     options:
                       mapResolveApicVariables: true
+                - set-variable:
+                    version: 2.0.0
+                    title: set-rPath
+                    actions:
+                      - set: message.headers.rPath
+                        value: $(TARGET_INTRANET)/WSHPCIntranet/Desembolso.asmx
+                        type: string
                 - invoke:
                     cache-response: no-cache
                     cache-ttl: 900
@@ -2798,7 +3028,7 @@ x-ibm-configuration:
                       - ConnectionError
                       - SOAPError
                       - OperationError
-                    target-url: $(url_ws_desembolso)/WSHPCIntranet/Desembolso.asmx
+                    target-url: $(TARGET_INTRANET)/WSHPCIntranet/Desembolso.asmx
                     timeout: 30
                     title: invoke
                     verb: POST
@@ -2828,7 +3058,48 @@ x-ibm-configuration:
                       type: whitelist
                     inject-proxy-headers: false
                 - gatewayscript:
-                    source: "var apim=require('apim');\nvar mon = require('local:///js/ValidationStatus.js');\r\nvar StatusHTTPCode = apim.getvariable('message.status.code');\r\nvar providerBody = apim.getvariable('message.body');\r\nvar INTMessageIdRes = apim.getvariable('INTMessageIdRes');\r\nvar gsPolicyMod = require('policy/policy-utility.js');\r\nvar transform = require('transform');\r\n\r\nif(StatusHTTPCode == 200) {\r\n    var options = {\r\n        'expression': '//ns1:GenerarDesembolsoResult',\r\n        'xmldom': providerBody,\r\n        'namespace': { 'ns1': 'http://tempuri.org/WSHpcIntranet/Desembolso' }\r\n    };\r\n    transform.xpath(options, function(error, xml) {\r\n        if(error) {\r\n            apim.output('application/json');\r\n            throw error;\r\n        } else {\r\n            var result = xml.item(0).childNodes;\r\n            var errorCode = result.item(1).childNodes.item(0).textContent;\r\n            if(errorCode == '0') {\r\n                apim.setvariable('message.headers.X-INT-MessageId-Res', INTMessageIdRes);\r\n                apim.setvariable('message.body', '{\"loan\":{\"id\": '+ result.item(0).textContent +'}}');\r\n                apim.output('application/json');\r\n                gsPolicyMod.SetNextStep('_SKIP_ALL_');\r\n            } else {\r\n                var errorDesc = result.item(1).childNodes.item(1).textContent;\r\n                mon.generateError403(errorCode, errorDesc, INTMessageIdRes);\r\n            }\r\n        }\r\n    });    \r\n} \r\n"
+                    source: >
+                      var apim=require('apim');
+
+                      //var mon = require('local:///js/ValidationStatus.js');
+
+                      var StatusHTTPCode =
+                      apim.getvariable('message.status.code');
+
+                      var providerBody = apim.getvariable('message.body');
+
+                      var INTMessageIdRes = apim.getvariable('INTMessageIdRes');
+
+                      //var gsPolicyMod = require('policy/policy-utility.js');
+
+                      var transform = require('transform');
+
+
+                      if(StatusHTTPCode == 200) {
+                          var options = {
+                              'expression': '//ns1:GenerarDesembolsoResult',
+                              'xmldom': providerBody,
+                              'namespace': { 'ns1': 'http://tempuri.org/WSHpcIntranet/Desembolso' }
+                          };
+                          transform.xpath(options, function(error, xml) {
+                              if(error) {
+                                  apim.output('application/json');
+                                  throw error;
+                              } else {
+                                  var result = xml.item(0).childNodes;
+                                  var errorCode = result.item(1).childNodes.item(0).textContent;
+                                  if(errorCode == '0') {
+                                      apim.setvariable('message.headers.X-INT-MessageId-Res', INTMessageIdRes);
+                                      apim.setvariable('message.body', '{"loan":{"id": '+ result.item(0).textContent +'}}');
+                                      apim.output('application/json');
+                                      //gsPolicyMod.SetNextStep('_SKIP_ALL_');
+                                  } else {
+                                      var errorDesc = result.item(1).childNodes.item(1).textContent;
+                                      mon.generateError403(errorCode, errorDesc, INTMessageIdRes);
+                                  }
+                              }
+                          });    
+                      } 
                     title: gatewayscript2
                     version: 2.0.0
                     comment:
@@ -2866,14 +3137,12 @@ x-ibm-configuration:
 
                       // Remove variables message.
 
-                      apim.setvariable('message.headers.X-INT-Consumer-Id','
+                      apim.setvariable('message.headers.consumerId','
                       ','clear');
 
-                      apim.setvariable('message.headers.X-INT-Timestamp','
-                      ','clear');
+                      apim.setvariable('message.headers.timeStamp',' ','clear');
 
-                      apim.setvariable('message.headers.X-INT-Message-Id','
-                      ','clear');
+                      apim.setvariable('message.headers.messageId',' ','clear');
 
 
                       var messageIdX =
@@ -2975,18 +3244,18 @@ x-ibm-configuration:
                         schema:
                           $ref: '#/definitions/TramaRq_desembolso_post'
                         variable: request.body
-                      X-INT-Consumer-Id:
+                      consumerId:
                         schema:
                           type: string
-                        variable: request.headers.X-INT-Consumer-Id
-                      X-INT-Message-Id:
+                        variable: request.headers.consumerId
+                      messageId:
                         schema:
                           type: string
-                        variable: request.headers.X-INT-Message-Id
-                      X-INT-Timestamp:
+                        variable: request.headers.messageId
+                      timeStamp:
                         schema:
                           type: string
-                        variable: request.headers.X-INT-Timestamp
+                        variable: request.headers.timeStamp
                     outputs:
                       SOAPAction:
                         schema:
@@ -3021,6 +3290,13 @@ x-ibm-configuration:
                         https://www.ibm.com/support/knowledgecenter/SSMNED_v10/com.ibm.apic.porting.doc/porting_messages.html#MAP_RESOLVE_VARS_SET_EXPLICIT_TRUE
                     options:
                       mapResolveApicVariables: true
+                - set-variable:
+                    version: 2.0.0
+                    title: set-rPath
+                    actions:
+                      - set: message.headers.rPath
+                        value: $(TARGET_INTRANET)/WSHPCIntranet/Desembolso.asmx
+                        type: string
                 - invoke:
                     cache-response: no-cache
                     cache-ttl: 900
@@ -3028,7 +3304,7 @@ x-ibm-configuration:
                       - ConnectionError
                       - SOAPError
                       - OperationError
-                    target-url: $(url_ws_desembolso)/WSHPCIntranet/Desembolso.asmx
+                    target-url: $(TARGET_INTRANET)/WSHPCIntranet/Desembolso.asmx
                     timeout: 30
                     title: invoke
                     verb: POST
@@ -3058,7 +3334,48 @@ x-ibm-configuration:
                       type: whitelist
                     inject-proxy-headers: false
                 - gatewayscript:
-                    source: "var apim=require('apim');\nvar mon = require('local:///js/ValidationStatus.js');\r\nvar StatusHTTPCode = apim.getvariable('message.status.code');\r\nvar providerBody = apim.getvariable('message.body');\r\nvar INTMessageIdRes = apim.getvariable('INTMessageIdRes');\r\nvar gsPolicyMod = require('policy/policy-utility.js');\r\nvar transform = require('transform');\r\n\r\nif(StatusHTTPCode == 200) {\r\n    var options = {\r\n        'expression': '//ns1:GenerarDesembolsoResult',\r\n        'xmldom': providerBody,\r\n        'namespace': { 'ns1': 'http://tempuri.org/WSHpcIntranet/Desembolso' }\r\n    };\r\n    transform.xpath(options, function(error, xml) {\r\n        if(error) {\r\n            apim.output('application/json');\r\n            throw error;\r\n        } else {\r\n            var result = xml.item(0).childNodes;\r\n            var errorCode = result.item(1).childNodes.item(0).textContent;\r\n            if(errorCode == '0') {\r\n                apim.setvariable('message.headers.X-INT-MessageId-Res', INTMessageIdRes);\r\n                apim.setvariable('message.body', '{\"loan\":{\"id\": '+ result.item(0).textContent +'}}');\r\n                apim.output('application/json');\r\n                gsPolicyMod.SetNextStep('_SKIP_ALL_');\r\n            } else {\r\n                var errorDesc = result.item(1).childNodes.item(1).textContent;\r\n                mon.generateError403(errorCode, errorDesc, INTMessageIdRes);\r\n            }\r\n        }\r\n    });    \r\n} \r\n"
+                    source: >
+                      var apim=require('apim');
+
+                      var mon = require('local:///js/ValidationStatus.js');
+
+                      var StatusHTTPCode =
+                      apim.getvariable('message.status.code');
+
+                      var providerBody = apim.getvariable('message.body');
+
+                      var INTMessageIdRes = apim.getvariable('INTMessageIdRes');
+
+                      //var gsPolicyMod = require('policy/policy-utility.js');
+
+                      var transform = require('transform');
+
+
+                      if(StatusHTTPCode == 200) {
+                          var options = {
+                              'expression': '//ns1:GenerarDesembolsoResult',
+                              'xmldom': providerBody,
+                              'namespace': { 'ns1': 'http://tempuri.org/WSHpcIntranet/Desembolso' }
+                          };
+                          transform.xpath(options, function(error, xml) {
+                              if(error) {
+                                  apim.output('application/json');
+                                  throw error;
+                              } else {
+                                  var result = xml.item(0).childNodes;
+                                  var errorCode = result.item(1).childNodes.item(0).textContent;
+                                  if(errorCode == '0') {
+                                      apim.setvariable('message.headers.X-INT-MessageId-Res', INTMessageIdRes);
+                                      apim.setvariable('message.body', '{"loan":{"id": '+ result.item(0).textContent +'}}');
+                                      apim.output('application/json');
+                                      //gsPolicyMod.SetNextStep('_SKIP_ALL_');
+                                  } else {
+                                      var errorDesc = result.item(1).childNodes.item(1).textContent;
+                                      mon.generateError403(errorCode, errorDesc, INTMessageIdRes);
+                                  }
+                              }
+                          });    
+                      } 
                     title: gatewayscript2
                     version: 2.0.0
                     comment:
@@ -3203,53 +3520,48 @@ x-ibm-configuration:
       encoded: false
     TARGET_IIB:
       value: ''
+      encoded: false
     PORT_IS_MPO07_02:
       value: ''
+      encoded: false
     TARGET_AUDIT:
       value: ''
+      encoded: false
     TARGET_INTRANET:
       value: ''
+      encoded: false
+    PORT_IS_MPO03_M03:
+      value: ''
+      encoded: false
   catalogs:
-    dev-440d:
+    int-com-dev:
       properties:
-        URL_DP: 'https://HA_PRESENTACION_VIP:5202'
-        URL_SIMULACION_CUOTA: 'http://hpcuat.grupoib.local/WSHpcIntranet/Simulacion.asmx'
-        URL_ValidarDesembolsoCredito: >-
-          http://hpcuat.grupoib.local/WSHPCIntranet/Desembolso.asmx?op=ValidarDesembolsoCredito
-        url_dest_hpc: 'http://hpcuat/WSHpcIntranet/Consulta.asmx'
-        url-dest-agreements: 'http://s372vd1/LICWCClientes/WebS-LIC_CClientes.asmx'
-        url_ws_desembolso: 'http://hpcuat.grupoib.local'
-        URL_DPSPLIT: 'https://HA_PRESENTACION_VIP:5200'
-    sit-8139:
+        TARGET_IIB: 'https://iibdev1.grupoib.local '
+        TARGET_AUDIT: 'http://iibdev1.grupoib.local:7005/ib/bus/auditoria'
+        TARGET_INTRANET: 'https://10.11.40.200:3120'
+        PORT_IS_MPO03_M03: '9032'
+        PORT_IS_MPO07_02: '8046'
+    int-com-sit:
       properties:
-        URL_DP: 'https://HA_PRESENTACION_VIP:5202'
-        URL_SIMULACION_CUOTA: 'http://hpcuat.grupoib.local/WSHpcIntranet/Simulacion.asmx'
-        URL_ValidarDesembolsoCredito: >-
-          http://hpcuat.grupoib.local/WSHPCIntranet/Desembolso.asmx?op=ValidarDesembolsoCredito
-        url_dest_hpc: 'http://hpcuat/WSHpcIntranet/Consulta.asmx'
-        url-dest-agreements: 'http://s372va1/LICWCClientes/WebS-LIC_CClientes.asmx'
-        url_ws_desembolso: 'http://hpcuat.grupoib.local'
-        URL_DPSPLIT: 'https://HA_PRESENTACION_VIP:5200'
-    uat-40de:
+        TARGET_IIB: 'https://iibsit1.grupoib.local'
+        TARGET_AUDIT: 'http://iibsit1.grupoib.local:7005/ib/bus/auditoria'
+        TARGET_INTRANET: 'https://10.11.40.40:5120'
+        PORT_IS_MPO03_M03: '9032'
+        PORT_IS_MPO07_02: '8046'
+    int-com-uat:
       properties:
-        URL_DP: 'https://HA_PRESENTACION_NODE:7202'
-        URL_SIMULACION_CUOTA: 'http://hpcuat.grupoib.local/WSHpcIntranet/Simulacion.asmx'
-        URL_ValidarDesembolsoCredito: >-
-          http://hpcuat.grupoib.local/WSHPCIntranet/Desembolso.asmx?op=ValidarDesembolsoCredito
-        url_dest_hpc: 'http://hpcuat/WSHpcIntranet/Consulta.asmx'
-        url-dest-agreements: 'http://s372va1/LICWCClientes/WebS-LIC_CClientes.asmx'
-        url_ws_desembolso: 'http://hpcuat.grupoib.local'
-        URL_DPSPLIT: 'https://HA_PRESENTACION_NODE:7200'
-    prd-bdc2:
+        TARGET_IIB: 'https://esbsrvuat.grupoib.local'
+        TARGET_AUDIT: 'http://esbsrvuat.grupoib.local:7005/ib/bus/auditoria'
+        TARGET_INTRANET: 'https://dpsuat.grupoib.local:7120'
+        PORT_IS_MPO03_M03: '9032'
+        PORT_IS_MPO07_02: '8046'
+    int-com-prd:
       properties:
-        URL_DP: 'https://HA_PRESENTACION_NODE:7202'
-        URL_SIMULACION_CUOTA: 'http://hpcprd.grupoib.local/WSHpcIntranet/Simulacion.asmx'
-        URL_ValidarDesembolsoCredito: >-
-          http://hpcprd.grupoib.local/WSHPCIntranet/Desembolso.asmx?op=ValidarDesembolsoCredito
-        url_dest_hpc: 'http://hpcprd/WSHpcIntranet/Consulta.asmx'
-        url-dest-agreements: 'http://s372vp1/LICWCClientes/WebS-LIC_CClientes.asmx'
-        url_ws_desembolso: 'http://hpcprd.grupoib.local'
-        URL_DPSPLIT: 'https://HA_PRESENTACION_NODE:7200'
+        TARGET_IIB: 'https://esbsrvprd.grupoib.local'
+        TARGET_AUDIT: 'http://audsrvprd.grupoib.local:7005/ib/bus/auditoria'
+        TARGET_INTRANET: 'https://dpsprd.grupoib.local:7120'
+        PORT_IS_MPO03_M03: '9032'
+        PORT_IS_MPO07_02: '8046'
   targets:
     IBKServiceB0037:
       swagger: '2.0'
@@ -8010,6 +8322,39 @@ x-ibm-configuration:
   application-authentication:
     certificate: false
 paths:
+  '/{loanid}':
+    get:
+      responses:
+        '200':
+          description: 200 OK
+          schema:
+            $ref: '#/definitions/get_loanid_res_body'
+      tags:
+        - loanid
+      summary: Retorna la información de un préstamo.
+      description: Retorna la información de un préstamo solicitado por un cliente.
+      parameters:
+        - name: loanid
+          in: path
+          required: true
+          description: Identificador del préstamo
+          type: string
+        - $ref: '#/parameters/consumerId'
+        - $ref: '#/parameters/messageId'
+        - $ref: '#/parameters/timeStamp'
+        - $ref: '#/parameters/countryCode'
+        - $ref: '#/parameters/deviceId'
+        - $ref: '#/parameters/serverId'
+        - $ref: '#/parameters/traceId'
+        - $ref: '#/parameters/parentId'
+        - $ref: '#/parameters/ipOrigen'
+        - $ref: '#/parameters/funcionalidadId'
+      security:
+        - OAuth:
+            - scopeConsultaM1
+          clientIdHeader: []
+      consumes: []
+      produces: []
   '/{loanId}/reengage-disbursement':
     post:
       responses:
@@ -8040,9 +8385,13 @@ paths:
           required: false
           schema:
             $ref: '#/definitions/TramaRq_desembolso_post'
-        - $ref: '#/parameters/X-INT-Consumer-Id'
-        - $ref: '#/parameters/X-INT-Message-Id'
-        - $ref: '#/parameters/X-INT-Timestamp'
+        - $ref: '#/parameters/consumerId'
+        - $ref: '#/parameters/messageId'
+        - $ref: '#/parameters/timeStamp'
+        - $ref: '#/parameters/traceId'
+        - $ref: '#/parameters/parentId'
+        - $ref: '#/parameters/ipOrigen'
+        - $ref: '#/parameters/funcionalidadId'
       security:
         - OAuth:
             - scopeTransaccionM1
@@ -8081,9 +8430,13 @@ paths:
           required: true
           description: codigo unico del cliente
           type: string
-        - $ref: '#/parameters/X-INT-Consumer-Id'
-        - $ref: '#/parameters/X-INT-Message-Id'
-        - $ref: '#/parameters/X-INT-Timestamp'
+        - $ref: '#/parameters/consumerId'
+        - $ref: '#/parameters/messageId'
+        - $ref: '#/parameters/timeStamp'
+        - $ref: '#/parameters/traceId'
+        - $ref: '#/parameters/parentId'
+        - $ref: '#/parameters/ipOrigen'
+        - $ref: '#/parameters/funcionalidadId'
       summary: Consulta el desembolso de un préstamo
       tags:
         - disbursement
@@ -8118,9 +8471,13 @@ paths:
           required: false
           schema:
             $ref: '#/definitions/TramaRq_desembolso_post'
-        - $ref: '#/parameters/X-INT-Consumer-Id'
-        - $ref: '#/parameters/X-INT-Message-Id'
-        - $ref: '#/parameters/X-INT-Timestamp'
+        - $ref: '#/parameters/consumerId'
+        - $ref: '#/parameters/messageId'
+        - $ref: '#/parameters/timeStamp'
+        - $ref: '#/parameters/traceId'
+        - $ref: '#/parameters/parentId'
+        - $ref: '#/parameters/ipOrigen'
+        - $ref: '#/parameters/funcionalidadId'
       security:
         - OAuth:
             - scopeTransaccionM1
@@ -8151,9 +8508,13 @@ paths:
       summary: Consulta el listado de préstamos personales de un cliente
       description: Consulta el listado de préstamos personales de un cliente
       parameters:
-        - $ref: '#/parameters/X-INT-Consumer-Id'
-        - $ref: '#/parameters/X-INT-Message-Id'
-        - $ref: '#/parameters/X-INT-Timestamp'
+        - $ref: '#/parameters/consumerId'
+        - $ref: '#/parameters/messageId'
+        - $ref: '#/parameters/timeStamp'
+        - $ref: '#/parameters/traceId'
+        - $ref: '#/parameters/parentId'
+        - $ref: '#/parameters/ipOrigen'
+        - $ref: '#/parameters/funcionalidadId'
       security:
         - OAuth:
             - scopeConsultaM1
@@ -8193,15 +8554,19 @@ paths:
           required: false
           schema:
             $ref: '#/definitions/TramaRq_salary-advance_customerId_post'
-        - $ref: '#/parameters/X-INT-Service-Id'
-        - $ref: '#/parameters/X-INT-Consumer-Id'
-        - $ref: '#/parameters/X-INT-Message-Id'
-        - $ref: '#/parameters/X-INT-Timestamp'
-        - $ref: '#/parameters/X-INT-User-Id'
-        - $ref: '#/parameters/X-INT-Supervisor-Id'
-        - $ref: '#/parameters/X-INT-Net-Id'
-        - $ref: '#/parameters/X-INT-Device-Id'
-        - $ref: '#/parameters/X-INT-Branch-Id'
+        - $ref: '#/parameters/serviceId'
+        - $ref: '#/parameters/consumerId'
+        - $ref: '#/parameters/messageId'
+        - $ref: '#/parameters/timeStamp'
+        - $ref: '#/parameters/userId'
+        - $ref: '#/parameters/supervisorId'
+        - $ref: '#/parameters/netId'
+        - $ref: '#/parameters/deviceId'
+        - $ref: '#/parameters/branchId'
+        - $ref: '#/parameters/traceId'
+        - $ref: '#/parameters/parentId'
+        - $ref: '#/parameters/ipOrigen'
+        - $ref: '#/parameters/funcionalidadId'
       summary: Aceptación de linea y desembolso de un ADS
       description: Aceptación de linea y desembolso de un ADS
       security:
@@ -8242,15 +8607,19 @@ paths:
           required: true
           schema:
             $ref: '#/definitions/TramaRq_salary-advance_customerId_post'
-        - $ref: '#/parameters/X-INT-Service-Id'
-        - $ref: '#/parameters/X-INT-Consumer-Id'
-        - $ref: '#/parameters/X-INT-Message-Id'
-        - $ref: '#/parameters/X-INT-Timestamp'
-        - $ref: '#/parameters/X-INT-Net-Id'
-        - $ref: '#/parameters/X-INT-User-Id'
-        - $ref: '#/parameters/X-INT-Supervisor-Id'
-        - $ref: '#/parameters/X-INT-Device-Id'
-        - $ref: '#/parameters/X-INT-Branch-Id'
+        - $ref: '#/parameters/serviceId'
+        - $ref: '#/parameters/consumerId'
+        - $ref: '#/parameters/messageId'
+        - $ref: '#/parameters/timeStamp'
+        - $ref: '#/parameters/netId'
+        - $ref: '#/parameters/userId'
+        - $ref: '#/parameters/supervisorId'
+        - $ref: '#/parameters/deviceId'
+        - $ref: '#/parameters/branchId'
+        - $ref: '#/parameters/traceId'
+        - $ref: '#/parameters/parentId'
+        - $ref: '#/parameters/ipOrigen'
+        - $ref: '#/parameters/funcionalidadId'
       summary: Desembolso de un ADS
       security:
         - OAuth:
@@ -8292,9 +8661,13 @@ paths:
             - 1  =  Tipo de documento DNI
             - 3  =  Tipo de documento carnet de extranjería
           type: string
-        - $ref: '#/parameters/X-INT-Timestamp'
-        - $ref: '#/parameters/X-INT-Message-Id'
-        - $ref: '#/parameters/X-INT-Consumer-Id'
+        - $ref: '#/parameters/timeStamp'
+        - $ref: '#/parameters/messageId'
+        - $ref: '#/parameters/consumerId'
+        - $ref: '#/parameters/traceId'
+        - $ref: '#/parameters/parentId'
+        - $ref: '#/parameters/ipOrigen'
+        - $ref: '#/parameters/funcionalidadId'
       security:
         - OAuth:
             - scopeConsultaM1
@@ -8413,38 +8786,13 @@ paths:
           description: Factor de cuota
           type: number
           format: double
-        - $ref: '#/parameters/X-INT-Consumer-Id'
-        - $ref: '#/parameters/X-INT-Timestamp'
-        - $ref: '#/parameters/X-INT-Message-Id'
-      security:
-        - OAuth:
-            - scopeConsultaM1
-          clientIdHeader: []
-      consumes: []
-      produces: []
-  '/{loanid}':
-    get:
-      responses:
-        '200':
-          description: 200 OK
-          schema:
-            $ref: '#/definitions/get_loanid_res_body'
-      tags:
-        - loanid
-      summary: Retorna la información de un préstamo.
-      description: Retorna la información de un préstamo solicitado por un cliente.
-      parameters:
-        - name: loanid
-          in: path
-          required: true
-          description: Identificador del préstamo
-          type: string
-        - $ref: '#/parameters/X-INT-Consumer-Id'
-        - $ref: '#/parameters/X-INT-Message-Id'
-        - $ref: '#/parameters/X-INT-Timestamp'
-        - $ref: '#/parameters/X-INT-Country-Id'
-        - $ref: '#/parameters/X-INT-Device-Id'
-        - $ref: '#/parameters/X-INT-Server-Id'
+        - $ref: '#/parameters/consumerId'
+        - $ref: '#/parameters/timeStamp'
+        - $ref: '#/parameters/messageId'
+        - $ref: '#/parameters/traceId'
+        - $ref: '#/parameters/parentId'
+        - $ref: '#/parameters/ipOrigen'
+        - $ref: '#/parameters/funcionalidadId'
       security:
         - OAuth:
             - scopeConsultaM1
@@ -9307,74 +9655,98 @@ definitions:
     additionalProperties: false
 tags: []
 parameters:
-  X-INT-Service-Id:
-    name: X-INT-Service-Id
+  serviceId:
+    name: serviceId
     type: string
-    required: true
+    required: false
     in: header
     description: Identificador del servicio
-  X-INT-Consumer-Id:
-    name: X-INT-Consumer-Id
+  consumerId:
+    name: consumerId
     type: string
     required: true
     in: header
     description: Valor que identifica la aplicación cliente que está invocando el servicio
-  X-INT-Message-Id:
-    name: X-INT-Message-Id
+  messageId:
+    name: messageId
     type: string
     required: true
     in: header
     description: >-
       Identificador único de la transacción del canal desde donde se invoca el
       servicio
-  X-INT-Timestamp:
-    name: X-INT-Timestamp
+  timeStamp:
+    name: timeStamp
     type: string
     required: true
     in: header
     description: Fecha en la se origina la transacción en el consumidor
-  X-INT-Net-Id:
-    name: X-INT-Net-Id
+  netId:
+    name: netId
     type: string
-    required: true
+    required: false
     in: header
     description: Identificador de red del consumidor
-  X-INT-User-Id:
-    name: X-INT-User-Id
+  userId:
+    name: userId
     type: string
-    required: true
+    required: false
     in: header
     description: Usuario de red que autorizó la trx
-  X-INT-Supervisor-Id:
-    name: X-INT-Supervisor-Id
+  supervisorId:
+    name: supervisorId
     type: string
-    required: true
+    required: false
     in: header
     description: Supervisor que autorizó la trx
-  X-INT-Country-Id:
-    name: X-INT-Country-Id
+  countryCode:
+    name: countryCode
     type: string
-    required: true
+    required: false
     in: header
     description: Código del pais
-  X-INT-Device-Id:
-    name: X-INT-Device-Id
+  deviceId:
+    name: deviceId
     type: string
-    required: true
+    required: false
     in: header
     description: Identificador del dispositivo de donde se realizo la transacción
-  X-INT-Server-Id:
-    name: X-INT-Server-Id
+  serverId:
+    name: serverId
     type: string
-    required: true
+    required: false
     in: header
     description: IP o Hostname del servidor de donde se realizó la transacción
-  X-INT-Branch-Id:
-    name: X-INT-Branch-Id
+  branchId:
+    name: branchId
+    type: string
+    required: false
+    in: header
+    description: Código de sucursal/tienda donde se originó la trx
+  traceId:
+    name: traceId
     type: string
     required: true
     in: header
-    description: Código de sucursal/tienda donde se originó la trx
+    description: Descripcion del trace
+  parentId:
+    name: parentId
+    type: string
+    required: true
+    in: header
+    description: Descripcion del parent
+  ipOrigen:
+    name: ipOrigen
+    type: string
+    required: true
+    in: header
+    description: Ip de origen
+  funcionalidadId:
+    name: funcionalidadId
+    type: string
+    required: true
+    in: header
+    description: Código de funcionalidad
 x-ibm-comment:
   - >-
     AMU version used to port this API:
